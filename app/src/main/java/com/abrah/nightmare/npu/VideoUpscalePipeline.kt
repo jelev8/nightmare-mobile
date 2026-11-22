@@ -46,8 +46,10 @@ class VideoUpscalePipeline(
         muxedPart.delete()
 
         // Refuse oversized jobs before loading the QNN context or starting either codec.
-        QnnUpscaleMemoryBudget.preflight(context, source.width, source.height, scale)
-        val upscaler = QnnVideoFrameUpscaler(context, runner, modelFile)
+        QnnUpscaleMemoryBudget.preflight(
+            context, source.width, source.height, scale, source.codedWidth, source.codedHeight,
+        )
+        val upscaler = QnnVideoFrameUpscaler(context, runner, modelFile, source.codedWidth, source.codedHeight)
         var encoderHeartbeat: () -> Unit = {}
         val actualPts = LongArray(source.frameCount) { Long.MIN_VALUE }
         var decoder: VideoFrameDecoder? = null

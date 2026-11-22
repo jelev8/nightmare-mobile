@@ -10,6 +10,7 @@ import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.graphics.PixelFormat
 import android.os.SystemClock
+import kotlinx.coroutines.CancellationException
 import java.io.Closeable
 import java.io.File
 import java.nio.ByteBuffer
@@ -52,7 +53,7 @@ data class VideoUpscaleSource(
 object VideoUpscaleInspector {
     private const val MAX_FRAMES = 300_000
 
-    fun inspect(file: File): VideoUpscaleSource {
+    fun inspect(file: File, isCancelled: () -> Boolean = { false }): VideoUpscaleSource {
         require(file.isFile && file.length() > 0L) { "source video is missing or empty" }
         val extractor = MediaExtractor()
         try {
@@ -157,6 +158,7 @@ object VideoUpscaleInspector {
             extractor.selectTrack(videoTrack)
             val pts = ArrayList<Long>()
             while (extractor.sampleTrackIndex >= 0) {
+                if (isCancelled()) throw CancellationException("video upscale cancelled during source inspection")
                 check(extractor.sampleFlags and MediaExtractor.SAMPLE_FLAG_ENCRYPTED == 0) {
                     "DRM-encrypted video is not supported"
                 }
@@ -176,7 +178,7 @@ object VideoUpscaleInspector {
                 "the source video has duplicate presentation timestamps"
             }
 
-            val audioStart = audioTrack?.let { scanAudioTrack(file, it) }
+            val audioStart = audioTrack?.let { scanAudioTrack(file, it, isCancelled) }
             if (audioTrack != null && audioStart == null) {
                 throw IllegalArgumentException("the source has an audio track but no readable audio samples")
             }
@@ -216,7 +218,7 @@ object VideoUpscaleInspector {
         }
     }
 
-    private fun scanAudioTrack(file: File, track: Int): Long? {
+    private fun scanAudioTrack(file: File, track: Int, isCancelled: () -> Boolean): Long? {
         val extractor = MediaExtractor()
         return try {
             extractor.setDataSource(file.absolutePath)
@@ -224,6 +226,7 @@ object VideoUpscaleInspector {
             var first: Long? = null
             var previous = -1L
             while (extractor.sampleTrackIndex >= 0) {
+                if (isCancelled()) throw CancellationException("video upscale cancelled during audio inspection")
                 check(extractor.sampleFlags and MediaExtractor.SAMPLE_FLAG_ENCRYPTED == 0) {
                     "DRM-encrypted audio is not supported"
                 }

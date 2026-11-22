@@ -2483,11 +2483,15 @@ class HarnessViewModel(app: Application) : AndroidViewModel(app) {
         }
         val output = java.io.File(
             app.cacheDir,
-            "video-upscale-${java.util.UUID.randomUUID()}.mp4",
+            "nightmare-video-upscale-${java.util.UUID.randomUUID()}.mp4",
         )
 
         var resultCommitted = false
         val refused = run("video upscale") {
+            // RunLock is held now, so no other video job can own these cache artifacts.
+            app.cacheDir.listFiles()?.filter {
+                it.name.startsWith("nightmare-video-upscale-")
+            }?.forEach { it.deleteRecursively() }
             upscalingResult = spec.label
             toast("Upscaling video with ${spec.label}")
             val job = kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]
@@ -2506,8 +2510,7 @@ class HarnessViewModel(app: Application) : AndroidViewModel(app) {
                     val source = com.abrah.nightmare.npu.VideoUpscaleInspector.inspect(sourceVideo) {
                         job?.isActive != true
                     }
-                    val sourceFlow = results.flow(id)?.workflow
-                        ?: throw IllegalStateException("the source result's original workflow is missing")
+                    val sourceFlow = results.flow(id)
                     val runner = com.abrah.nightmare.npu.QnnRunner(app)
                     try {
                         val pipeline = com.abrah.nightmare.npu.VideoUpscalePipeline(
@@ -2580,8 +2583,8 @@ class HarnessViewModel(app: Application) : AndroidViewModel(app) {
                                 sourceId = id,
                                 video = result.file,
                                 poster = result.poster,
-                                workflow = sourceFlow,
-                                types = nodeTypes,
+                                workflow = sourceFlow?.workflow,
+                                types = sourceFlow?.types ?: emptyMap(),
                                 upscalerId = upscalerId,
                                 scale = scale,
                                 resultWidth = result.width,

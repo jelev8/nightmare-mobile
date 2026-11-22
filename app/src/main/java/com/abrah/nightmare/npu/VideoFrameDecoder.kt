@@ -248,8 +248,12 @@ class VideoFrameDecoder(
         check(!closed) { "video decoder is closed" }
         if (outputEnded) return null
         val info = MediaCodec.BufferInfo()
+        val deadline = SystemClock.elapsedRealtime() + DECODER_FRAME_TIMEOUT_MS
         while (true) {
             if (isCancelled()) throw CancellationException("video upscale cancelled")
+            check(SystemClock.elapsedRealtime() < deadline) {
+                "video decoder stopped delivering frames"
+            }
 
             if (!inputEnded) {
                 val inputIndex = decoder.dequeueInputBuffer(10_000L)
@@ -364,5 +368,6 @@ class VideoFrameDecoder(
 
     private companion object {
         const val IMAGE_TIMEOUT_MS = 30_000L
+        const val DECODER_FRAME_TIMEOUT_MS = 60_000L
     }
 }

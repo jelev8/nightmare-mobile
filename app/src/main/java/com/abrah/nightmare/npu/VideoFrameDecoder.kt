@@ -74,6 +74,15 @@ object VideoUpscaleInspector {
             }
             val videoTrack = videoTracks.single()
             val audioTrack = audioTracks.singleOrNull()
+            val audioMime = audioTrack?.let {
+                extractor.getTrackFormat(it).getString(MediaFormat.KEY_MIME)
+            }
+            if (audioMime != null && audioMime !in setOf("audio/mp4a-latm", "audio/3gpp", "audio/amr-wb")) {
+                throw IllegalArgumentException(
+                    "the source audio codec ($audioMime) cannot be preserved in an Android MP4; " +
+                        "use a source with AAC or AMR audio"
+                )
+            }
             val format = extractor.getTrackFormat(videoTrack)
             val codedWidth = format.getInteger(MediaFormat.KEY_WIDTH)
             val codedHeight = format.getInteger(MediaFormat.KEY_HEIGHT)

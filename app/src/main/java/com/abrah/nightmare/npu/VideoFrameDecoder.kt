@@ -157,6 +157,9 @@ object VideoUpscaleInspector {
             extractor.selectTrack(videoTrack)
             val pts = ArrayList<Long>()
             while (extractor.sampleTrackIndex >= 0) {
+                check(extractor.sampleFlags and MediaExtractor.SAMPLE_FLAG_ENCRYPTED == 0) {
+                    "DRM-encrypted video is not supported"
+                }
                 val time = extractor.sampleTime
                 require(time >= 0L) { "the video contains a sample without a presentation timestamp" }
                 pts += time
@@ -173,7 +176,7 @@ object VideoUpscaleInspector {
                 "the source video has duplicate presentation timestamps"
             }
 
-            val audioStart = audioTrack?.let { firstTrackSampleTime(file, it) }
+            val audioStart = audioTrack?.let { scanAudioTrack(file, it) }
             if (audioTrack != null && audioStart == null) {
                 throw IllegalArgumentException("the source has an audio track but no readable audio samples")
             }
@@ -213,12 +216,26 @@ object VideoUpscaleInspector {
         }
     }
 
-    private fun firstTrackSampleTime(file: File, track: Int): Long? {
+    private fun scanAudioTrack(file: File, track: Int): Long? {
         val extractor = MediaExtractor()
         return try {
             extractor.setDataSource(file.absolutePath)
             extractor.selectTrack(track)
-            extractor.sampleTime.takeIf { it >= 0L }
+            var first: Long? = null
+            var previous = -1L
+            while (extractor.sampleTrackIndex >= 0) {
+                check(extractor.sampleFlags and MediaExtractor.SAMPLE_FLAG_ENCRYPTED == 0) {
+                    "DRM-encrypted audio is not supported"
+                }
+                val pts = extractor.sampleTime
+                check(pts >= 0L && pts > previous) {
+                    "source audio samples have missing, duplicate or non-monotonic timestamps"
+                }
+                if (first == null) first = pts
+                previous = pts
+                if (!extractor.advance()) break
+            }
+            first
         } finally {
             extractor.release()
         }

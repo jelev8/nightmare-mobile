@@ -114,19 +114,16 @@ class QnnRunner(private val context: Context) {
      * Execute a graph using caller-owned output buffers. Unlike [run], this
      * method reuses those arrays across repeated tile executions.
      */
+    fun outputNames(bin: File): Array<String> = NativeQnn.outputNames(handleOf(bin))
+
     fun runInto(
         bin: File,
-        inputs: Map<String, FloatArray>,
-        outputs: Map<String, FloatArray>,
+        inputNames: Array<String>,
+        inputData: Array<FloatArray>,
+        outputData: Array<FloatArray>,
     ) {
+        check(inputNames.size == inputData.size) { "QNN input names/data count mismatch" }
         val handle = handleOf(bin)
-        val inputNames = inputs.keys.toTypedArray()
-        val inputData = inputNames.map { inputs.getValue(it) }.toTypedArray()
-        val outputNames = NativeQnn.outputNames(handle)
-        check(outputs.size == outputNames.size && outputNames.all(outputs::containsKey)) {
-            "${bin.name}: output buffers must match the graph's named outputs"
-        }
-        val outputData = outputNames.map { outputs.getValue(it) }.toTypedArray()
         check(NativeQnn.executeInto(handle, inputNames, inputData, outputData)) {
             "${bin.name} execute failed: ${NativeQnn.lastError()}"
         }

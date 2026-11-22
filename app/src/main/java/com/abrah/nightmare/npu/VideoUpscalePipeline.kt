@@ -62,7 +62,13 @@ class VideoUpscalePipeline(
             require(outWidth % 2 == 0 && outHeight % 2 == 0) {
                 "the upscaled video dimensions must be even for H.264 encoding"
             }
+            val encodeBitRate = maxOf(
+                8_000_000L,
+                outWidth.toLong() * outHeight * source.fps * 15L / 100L,
+            ).coerceAtMost(150_000_000L).toInt()
+            requireStorageBudget(source, encodeBitRate)
             log("video input: ${source.width}x${source.height}, ${source.frameCount} frames, ${source.fps} fps nominal")
+            log("video output: ${outWidth}x${outHeight}, H.264 target bitrate ${encodeBitRate / 1_000_000} Mbps")
             log(if (source.audioTrack == null) "source audio: none" else "source audio: present; strict preservation enabled")
 
             VideoWriter.encode(
@@ -82,6 +88,7 @@ class VideoUpscalePipeline(
                 colorStandard = source.colorStandard,
                 colorTransfer = source.colorTransfer,
                 colorRange = source.colorRange,
+                bitRateOverride = encodeBitRate,
                 onHeartbeatReady = { heartbeat -> encoderHeartbeat = heartbeat },
             ) { index ->
                 encoderHeartbeat()
@@ -173,6 +180,24 @@ class VideoUpscalePipeline(
             videoOnly.delete()
             muxedPart.delete()
             if (!completed) outputFile.delete()
+        }
+    }
+
+    private fun requireStorageBudget(source: VideoUpscaleSource, bitRate: Int) {
+        val durationUs = source.videoEndRelativeUs.coerceAtLeast(1L)
+        val baseVideoBytes = bitRate.toLong() * durationUs / 8_000_000L
+        val estimatedVideoBytes = baseVideoBytes + baseVideoBytes / 5L
+        // At peak, the intermediate and final MP4s can coexist; Results then
+        // makes one private copy. Reserve an additional 128 MiB for filesystem
+        // overhead, the poster, and app work.
+        val peakBytes = estimatedVideoBytes * 2L + 128L * 1024L * 1024L
+        val availableBytes = android.os.StatFs(context.cacheDir.absolutePath).availableBytes
+        if (availableBytes < peakBytes) {
+            fun mib(bytes: Long) = String.format(java.util.Locale.US, "%.1f", bytes / 1_048_576.0)
+            throw IllegalArgumentException(
+                "this upscale may need about ${mib(peakBytes)} MiB of free internal storage; " +
+                    "only ${mib(availableBytes)} MiB is currently available"
+            )
         }
     }
 

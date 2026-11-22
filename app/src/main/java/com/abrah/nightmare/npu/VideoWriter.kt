@@ -132,7 +132,7 @@ object VideoWriter {
         colorTransfer: Int? = null,
         colorRange: Int? = null,
         /** Supplies the encoder's watchdog heartbeat to long-running frame producers. */
-        onHeartbeatReady: (((() -> Unit)) -> Unit)? = null,
+        onHeartbeatReady: ((() -> Unit) -> Unit)? = null,
         frameAt: (Int) -> Bitmap,
     ): File {
         require(count > 0) { "no frames to write" }

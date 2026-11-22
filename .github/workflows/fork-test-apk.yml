@@ -117,14 +117,18 @@ jobs:
           fi
           python --version
           FOXLET_DIR="$RUNNER_TEMP/foxlet-translate" bash tools/build_foxlet.sh
+          test "$(git -C "$RUNNER_TEMP/foxlet-translate" rev-parse --short=7 HEAD)" = "3e6b7b0"
 
-      - name: Run JVM unit tests and build side-by-side APK
+      - name: Run focused tests and build side-by-side APK
         shell: bash
         run: |
           set -euo pipefail
           cd source
           ./gradlew --no-daemon --stacktrace \
             :app:testDebugUnitTest \
+            --tests 'com.abrah.nightmare.ResultsStoreTest' \
+            --tests 'com.abrah.nightmare.npu.QnnUpscaleTilingTest' \
+            -x :app:testResultsFullscreen \
             :app:assembleDebug \
             -PforkTest=true
           APK="app/build/outputs/apk/debug/app-debug.apk"

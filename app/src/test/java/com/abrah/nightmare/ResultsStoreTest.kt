@@ -174,14 +174,16 @@ class ResultsStoreTest {
             types = NODE_TYPES,
             upscalerId = "upscaler_anime",
             scale = 4,
+            resultWidth = 512,
+            resultHeight = 384,
         )
 
         assertTrue("derived result has a different id", derived.id != source.id)
         assertEquals(source.id, derived.derivedFrom)
         assertEquals("upscaler_anime", derived.upscalerId)
         assertEquals(4, derived.upscaleFactor)
-        assertEquals(128, derived.width)
-        assertEquals(96, derived.height)
+        assertEquals("full video width, not poster width", 512, derived.width)
+        assertEquals("full video height, not poster height", 384, derived.height)
         assertEquals(8192L, s.clipFile(derived.id)!!.length())
         assertEquals("source clip remains unchanged", 4096L, sourcePath.length())
         assertTrue("original input file remains untouched", original.isFile)

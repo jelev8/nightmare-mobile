@@ -146,7 +146,7 @@ object VideoWriter {
             if (software == null || e.codecName == software) throw e
             log("      ${e.message}. Trying again on the software encoder")
         }
-        return encodeOnce(software, count, w, h, fps, out, log, isCancelled, presentationTimeUsAt, orientationDegrees, frameAt)
+        return encodeOnce(software, count, w, h, fps, out, log, isCancelled, presentationTimeUsAt, orientationDegrees, colorStandard, colorTransfer, colorRange, frameAt)
     }
 
     /** The platform's software H.264 encoder (`c2.android.avc.encoder` on Android 10+), or null. */

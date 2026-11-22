@@ -1673,7 +1673,7 @@ fun UpscalePicker(
                         when {
                             u.installed -> StudioButton(onClick = { onPick(u.spec.id, scale) }, enabled = fits(scale)) { Text(stringResource(R.string.use)) }
                             u.progress != null -> Text(stringResource(R.string.results_mb_progress, u.progress.done shr 20, u.progress.total shr 20), style = MeasureTextStyle)
-                            u.build != null && onInstall != null -> StudioOutlinedButton(onClick = { onInstall(u.spec) }) {
+                            u.build != null && onInstall != null -> StudioOutlinedButton(onClick = { onInstall?.invoke(u.spec) }) {
                                 Text(stringResource(R.string.device_mb, u.build.bytes shr 20))
                             }
                             else -> Text(stringResource(R.string.cannot_run_it), style = NoteTextStyle)

@@ -2482,6 +2482,7 @@ class HarnessViewModel(app: Application) : AndroidViewModel(app) {
             "video-upscale-${java.util.UUID.randomUUID()}.mp4",
         )
 
+        var resultCommitted = false
         val refused = run("video upscale") {
             upscalingResult = spec.label
             toast("Upscaling video with ${spec.label}")
@@ -2570,7 +2571,9 @@ class HarnessViewModel(app: Application) : AndroidViewModel(app) {
                                 scale = scale,
                                 resultWidth = result.width,
                                 resultHeight = result.height,
+                                isCancelled = { job?.isActive != true },
                             )
+                            resultCommitted = true
                         } finally {
                             result.poster.recycle()
                             result.file.delete()
@@ -2580,7 +2583,6 @@ class HarnessViewModel(app: Application) : AndroidViewModel(app) {
                     }
                 }
                 withContext(Dispatchers.Main) {
-                    refreshResults()
                     toast("Upscaled video saved as a new Results item. The original is unchanged.")
                     if (peakBattery >= Prefs.heatPauseAt.toDouble()) {
                         say("battery reached ${BatteryHeat.format(peakBattery)} °C during video upscaling; let the phone cool before another long job")
@@ -2594,6 +2596,11 @@ class HarnessViewModel(app: Application) : AndroidViewModel(app) {
                 say("video upscale failed: $why", bad = true)
                 toast("Video upscale failed: $why")
             } finally {
+                if (resultCommitted) {
+                    withContext(kotlinx.coroutines.NonCancellable + Dispatchers.Main) {
+                        refreshResults()
+                    }
+                }
                 withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) {
                     output.delete()
                 }

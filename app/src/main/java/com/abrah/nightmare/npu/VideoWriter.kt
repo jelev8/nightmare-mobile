@@ -124,20 +124,26 @@ object VideoWriter {
         out: File,
         log: (String) -> Unit = {},
         isCancelled: () -> Boolean = { false },
+        /** Optional source presentation timestamps, already shifted to a non-negative common origin. */
+        presentationTimeUsAt: ((Int) -> Long)? = null,
+        /** Container rotation metadata, restricted to the MP4 orientation values. */
+        orientationDegrees: Int = 0,
         frameAt: (Int) -> Bitmap,
     ): File {
         require(count > 0) { "no frames to write" }
+        require(fps > 0) { "fps must be positive" }
+        require(orientationDegrees in setOf(0, 90, 180, 270)) { "invalid video rotation $orientationDegrees" }
         // H.264 wants even dimensions; 320x512 and 640x1024 both qualify, but a future
         // resolution might not and the failure would be an opaque codec error.
         require(w % 2 == 0 && h % 2 == 0) { "odd frame size ${w}x$h" }
         val software = softwareAvcEncoder()
         try {
-            return encodeOnce(null, count, w, h, fps, out, log, isCancelled, frameAt)
+            return encodeOnce(null, count, w, h, fps, out, log, isCancelled, presentationTimeUsAt, orientationDegrees, frameAt)
         } catch (e: EncoderStalled) {
             if (software == null || e.codecName == software) throw e
             log("      ${e.message}. Trying again on the software encoder")
         }
-        return encodeOnce(software, count, w, h, fps, out, log, isCancelled, frameAt)
+        return encodeOnce(software, count, w, h, fps, out, log, isCancelled, presentationTimeUsAt, orientationDegrees, frameAt)
     }
 
     /** The platform's software H.264 encoder (`c2.android.avc.encoder` on Android 10+), or null. */
@@ -156,6 +162,8 @@ object VideoWriter {
         out: File,
         log: (String) -> Unit,
         isCancelled: () -> Boolean,
+        presentationTimeUsAt: ((Int) -> Long)?,
+        orientationDegrees: Int,
         frameAt: (Int) -> Bitmap,
     ): File {
         // Encode to a temp file first. MediaMuxer needs a seekable FileDescriptor, and a
@@ -170,6 +178,9 @@ object VideoWriter {
             setInteger(MediaFormat.KEY_BIT_RATE, bitRate(w, h, fps))
             setInteger(MediaFormat.KEY_FRAME_RATE, fps)
             setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, I_FRAME_INTERVAL)
+            // VFR source timestamps are assigned in muxer order below. Disable
+            // B-frame reordering so each encoded sample still maps to frameAt(i).
+            if (presentationTimeUsAt != null) setInteger(MediaFormat.KEY_MAX_B_FRAMES, 0)
         }
 
         val codec = codecName?.let { MediaCodec.createByCodecName(it) } ?: MediaCodec.createEncoderByType(MIME)
@@ -184,7 +195,9 @@ object VideoWriter {
             surface = codec.createInputSurface()
             codec.start()
             log("      encoder $encoderName")
-            MediaMuxer(tmp.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+            MediaMuxer(tmp.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4).also {
+                if (orientationDegrees != 0) it.setOrientationHint(orientationDegrees)
+            }
         } catch (e: Exception) {
             runCatching { codec.stop() }
             runCatching { codec.release() }
@@ -196,6 +209,7 @@ object VideoWriter {
         var track = -1
         var muxing = false
         var outFrame = 0L
+        var lastPresentationTimeUs = -1L
         val info = MediaCodec.BufferInfo()
 
         // ⭐ Progress = a frame taken or a buffer given back. Read by the loops below AND by the
@@ -258,7 +272,15 @@ object VideoWriter {
                             // regardless of how fast the encoder was fed. Output order
                             // equals input order because H.264 baseline here has no
                             // B-frames, so a simple counter is correct.
-                            info.presentationTimeUs = outFrame * 1_000_000L / fps
+                            check(outFrame < count) { "encoder produced more frames than were submitted" }
+                            val pts = presentationTimeUsAt?.invoke(outFrame.toInt())
+                                ?: (outFrame * 1_000_000L / fps)
+                            check(pts >= 0L && pts > lastPresentationTimeUs) {
+                                "video presentation timestamps must be non-negative and strictly increasing; " +
+                                    "frame $outFrame had $pts after $lastPresentationTimeUs"
+                            }
+                            info.presentationTimeUs = pts
+                            lastPresentationTimeUs = pts
                             outFrame++
                             muxer.writeSampleData(track, buf, info)
                         }

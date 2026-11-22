@@ -90,6 +90,12 @@ data class Result(
      * Clear on the canvas must not undo it. Defaults false for older files.
      */
     val auto: Boolean = false,
+    /** ⭐ Provenance for a derived video result; null for ordinary results. */
+    val derivedFrom: String? = null,
+    /** ⭐ Installed QNN upscaler id used to create this result. */
+    val upscalerId: String? = null,
+    /** ⭐ Native model scale (4 for the current built-in models). */
+    val upscaleFactor: Int? = null,
 ) {
     val label: String get() = prompt?.take(60)?.ifBlank { null } ?: "no prompt"
 }
@@ -326,6 +332,105 @@ class ResultsStore(private val dir: File) {
     }
 
     /**
+     * Keep a completed video-upscale output as a NEW, self-contained Results item.
+     *
+     * Unlike [keep], every part of this result is required: the MP4, poster and
+     * metadata are committed by same-directory renames, with metadata last.
+     * A failed copy/rename removes every file claimed by this operation.
+     * The source result and its original MP4 are never modified.
+     *
+     * Blocking; callers must use Dispatchers.IO.
+     */
+    fun keepUpscaledVideo(
+        sourceId: String,
+        video: File,
+        poster: Bitmap,
+        workflow: Workflow,
+        types: Map<String, NodeType>,
+        upscalerId: String,
+        scale: Int,
+    ): Result {
+        require(sourceId.isNotBlank()) { "missing source result" }
+        require(upscalerId.isNotBlank()) { "missing upscaler id" }
+        require(scale > 0) { "invalid upscale factor" }
+        require(video.isFile && video.length() > 0L) { "upscaled video is missing or empty" }
+        require(poster.width > 0 && poster.height > 0) { "invalid video poster" }
+
+        synchronized(KEEP_LOCK) {
+            dir.mkdirs()
+            val source = all().firstOrNull { it.id == sourceId }
+                ?: throw IllegalArgumentException("source result is no longer in Results")
+            val sourceClip = clipFile(sourceId)
+                ?: throw IllegalArgumentException("source video is no longer in Results")
+            require(sourceClip.isFile && sourceClip.length() > 0L) { "source video is missing or empty" }
+
+            var id = "r" + System.currentTimeMillis()
+            var n = 1
+            while (meta(id).exists() || !png(id).createNewFile()) {
+                id = "r" + System.currentTimeMillis() + "_" + n++
+            }
+
+            val tmpPng = File(dir, "$id.png.tmp")
+            val tmpMp4 = File(dir, "$id.mp4.tmp")
+            val tmpMeta = File(dir, "$id.json.tmp")
+            try {
+                if (!tmpPng.outputStream().use {
+                    poster.compress(Bitmap.CompressFormat.PNG, 100, it)
+                }) throw java.io.IOException("the video poster could not be encoded")
+                check(tmpPng.isFile && tmpPng.length() > 0L) { "the video poster is empty" }
+                check(tmpPng.renameTo(png(id))) { "could not commit the video poster" }
+
+                video.copyTo(tmpMp4, overwrite = false)
+                check(tmpMp4.length() == video.length() && tmpMp4.length() > 0L) {
+                    "the upscaled video copy is incomplete"
+                }
+                check(tmpMp4.renameTo(mp4(id))) { "could not commit the upscaled video" }
+
+                val savedAt = System.currentTimeMillis()
+                val json = JSONObject()
+                    .put("savedAt", savedAt)
+                    .put("imageId", JSONObject.NULL)
+                    .put("seed", source.seed ?: JSONObject.NULL)
+                    .put("model", source.model ?: JSONObject.NULL)
+                    .put("prompt", source.prompt ?: JSONObject.NULL)
+                    .put("width", poster.width)
+                    .put("height", poster.height)
+                    .put("batchId", JSONObject.NULL)
+                    .put("batchLabel", "")
+                    .put("favourite", false)
+                    .put("auto", false)
+                    .put("times", JSONObject())
+                    .put("flow", workflow.toJson(types))
+                    .put("derivedFrom", sourceId)
+                    .put("upscalerId", upscalerId)
+                    .put("upscaleFactor", scale)
+                    .toString()
+                tmpMeta.writeText(json)
+                check(tmpMeta.isFile && tmpMeta.length() > 0L) { "the video result metadata is empty" }
+                check(tmpMeta.renameTo(meta(id))) { "could not commit the video result metadata" }
+
+                return Result(
+                    id = id,
+                    savedAt = savedAt,
+                    imageId = null,
+                    seed = source.seed,
+                    model = source.model,
+                    prompt = source.prompt,
+                    width = poster.width,
+                    height = poster.height,
+                    videoPath = mp4(id).absolutePath,
+                    derivedFrom = sourceId,
+                    upscalerId = upscalerId,
+                    upscaleFactor = scale,
+                )
+            } catch (t: Throwable) {
+                listOf(tmpPng, tmpMp4, tmpMeta, png(id), mp4(id), meta(id)).forEach { it.delete() }
+                throw t
+            }
+        }
+    }
+
+    /**
      * ⭐⭐ Everything kept, with a sweep's items gathered into one entry.
      *
      * ⚠ Order is by the NEWEST item in each group, so a sweep that just
@@ -372,6 +477,9 @@ class ResultsStore(private val dir: File) {
                         batchLabel = j.optString("batchLabel"),
                         favourite = j.optBoolean("favourite", false),
                         auto = j.optBoolean("auto", false),
+                        derivedFrom = j.optString("derivedFrom").takeIf { it.isNotBlank() && it != "null" },
+                        upscalerId = j.optString("upscalerId").takeIf { it.isNotBlank() && it != "null" },
+                        upscaleFactor = j.optInt("upscaleFactor").takeIf { it > 0 },
                         times = j.optJSONObject("times")?.let { t ->
                             t.keys().asSequence().associateWith { k -> t.optLong(k) }
                         }.orEmpty(),
@@ -497,6 +605,16 @@ class ResultsStore(private val dir: File) {
             out += "size" to if (p["upscale"].equals("false", true)) "512x320" else "1024x640"
             out += "frames" to "49"
             p["seed"]?.takeIf { it != "0" }?.let { out += "seed" to it }
+        }
+        val saved = runCatching { JSONObject(meta(id).readText()) }.getOrNull()
+        saved?.optString("upscalerId")?.takeIf { it.isNotBlank() && it != "null" }?.let {
+            out += "video upscaler" to it
+        }
+        saved?.optInt("upscaleFactor", 0)?.takeIf { it > 0 }?.let {
+            out += "upscale factor" to "${it}x"
+        }
+        saved?.optString("derivedFrom")?.takeIf { it.isNotBlank() && it != "null" }?.let {
+            out += "source result" to it
         }
         out += "nodes" to g.nodes.size.toString()
         return out

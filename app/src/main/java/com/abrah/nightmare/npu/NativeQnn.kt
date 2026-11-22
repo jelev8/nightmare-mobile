@@ -68,6 +68,19 @@ object NativeQnn {
     @JvmStatic
     external fun describe(handle: Long): String
 
+    /**
+     * Execute into caller-owned output arrays. The caller must supply one
+     * correctly sized FloatArray for every graph output, in [outputNames] order.
+     * This avoids allocating a multi-megabyte FloatArray for every video tile.
+     */
+    @JvmStatic
+    external fun executeInto(
+        handle: Long,
+        names: Array<String>,
+        data: Array<FloatArray>,
+        outputs: Array<FloatArray>,
+    ): Boolean
+
     /** Output names, in the order [execute] returns them. */
     @JvmStatic
     external fun outputNames(handle: Long): Array<String>

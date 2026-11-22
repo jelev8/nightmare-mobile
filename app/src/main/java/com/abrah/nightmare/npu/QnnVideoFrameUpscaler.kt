@@ -61,6 +61,13 @@ class QnnVideoFrameUpscaler(
         }
     }
 
+    // Reused for every tile and every frame. A new 768x768x3 FloatArray per
+    // tile would allocate about 6.75 MiB each time (hundreds of MiB per frame).
+    private val tileInputBuffer = FloatArray(3 * TILE_SIZE * TILE_SIZE)
+    private val tileOutputBuffer = FloatArray(3 * OUTPUT_TILE_SIZE * OUTPUT_TILE_SIZE)
+    private val inputBuffers = mapOf(input.name to tileInputBuffer)
+    private val outputBuffers = mapOf(output.name to tileOutputBuffer)
+
     /**
      * @param scale Final scale presented to the user (2x, 3x or 4x). The model
      * still executes at its native 4x scale; 2x/3x are downsampled afterward.
@@ -164,7 +171,6 @@ class QnnVideoFrameUpscaler(
             val stripePlane = OUTPUT_TILE_SIZE * outW
             val accum = FloatArray(3 * stripePlane)
             val tilePixels = IntArray(TILE_SIZE * TILE_SIZE)
-            val tileInput = FloatArray(3 * TILE_SIZE * TILE_SIZE)
             val rowPixels = IntArray(outW)
             val tilePlane = OUTPUT_TILE_SIZE * OUTPUT_TILE_SIZE
             val tileFade = FloatArray(OUTPUT_TILE_SIZE) { QnnUpscaleTiling.fade(it) }
@@ -183,11 +189,10 @@ class QnnVideoFrameUpscaler(
                         tilePixels, 0, TILE_SIZE,
                         sourceX, sourceY, TILE_SIZE, TILE_SIZE,
                     )
-                    pixelsToChw(tilePixels, tileInput)
+                    pixelsToChw(tilePixels, tileInputBuffer)
 
-                    val tensors = runner.run(modelFile, mapOf(input.name to tileInput))
-                    val tileOutput = tensors[output.name]
-                        ?: throw IllegalStateException("QNN output tensor ${output.name} is missing")
+                    runner.runInto(modelFile, inputBuffers, outputBuffers)
+                    val tileOutput = tileOutputBuffer
                     check(tileOutput.size == 3 * tilePlane) {
                         "QNN returned ${tileOutput.size} values; expected ${3 * tilePlane}"
                     }

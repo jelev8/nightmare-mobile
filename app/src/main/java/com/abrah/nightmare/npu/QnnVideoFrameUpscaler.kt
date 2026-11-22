@@ -22,6 +22,8 @@ class QnnVideoFrameUpscaler(
     private val context: Context,
     private val runner: QnnRunner,
     private val modelFile: File,
+    private val codedWidth: Int,
+    private val codedHeight: Int,
 ) {
     private data class Tensor(
         val direction: String,
@@ -142,6 +144,8 @@ class QnnVideoFrameUpscaler(
                 outputHeight = outH,
                 targetWidth = targetWidth.toInt(),
                 targetHeight = targetHeight.toInt(),
+                codedWidth = codedWidth,
+                codedHeight = codedHeight,
             )
 
             val xs = QnnUpscaleTiling.positions(inputWidth)
@@ -310,9 +314,11 @@ class QnnVideoFrameUpscaler(
         outputHeight: Int,
         targetWidth: Int,
         targetHeight: Int,
+        codedWidth: Int,
+        codedHeight: Int,
     ) = QnnUpscaleMemoryBudget.checkBudget(
         context, sourceWidth, sourceHeight, inputWidth, inputHeight,
-        outputWidth, outputHeight, targetWidth, targetHeight,
+        outputWidth, outputHeight, targetWidth, targetHeight, codedWidth, codedHeight,
     )
 
     private companion object {
@@ -334,8 +340,17 @@ internal object QnnUpscaleMemoryBudget {
     private const val RESERVE_BYTES = 64L * 1024L * 1024L
 
     /** Run before creating a decoder, encoder, QNN context or output bitmap. */
-    fun preflight(context: Context, width: Int, height: Int, scale: Int) {
-        require(width > 0 && height > 0) { "invalid source frame dimensions" }
+    fun preflight(
+        context: Context,
+        width: Int,
+        height: Int,
+        scale: Int,
+        codedWidth: Int,
+        codedHeight: Int,
+    ) {
+        require(width > 0 && height > 0 && codedWidth >= width && codedHeight >= height) {
+            "invalid coded/cropped source frame dimensions"
+        }
         require(scale in 2..4) { "video upscale scale must be 2x, 3x or 4x" }
         val shortEdge = minOf(width, height)
         val factor = if (shortEdge < TILE_SIZE) TILE_SIZE.toFloat() / shortEdge else 1f
@@ -360,6 +375,7 @@ internal object QnnUpscaleMemoryBudget {
             width, height, inputWidth, inputHeight,
             outputWidth.toInt(), outputHeight.toInt(),
             targetWidth.toInt(), targetHeight.toInt(),
+            codedWidth, codedHeight,
         )
     }
 
@@ -373,6 +389,8 @@ internal object QnnUpscaleMemoryBudget {
         outputHeight: Int,
         targetWidth: Int,
         targetHeight: Int,
+        codedWidth: Int,
+        codedHeight: Int,
     ) {
         val nativeOutputBytes = outputWidth.toLong() * outputHeight * 4L
         val targetBytes = if (targetWidth == outputWidth && targetHeight == outputHeight) 0L
@@ -382,8 +400,12 @@ internal object QnnUpscaleMemoryBudget {
             3L * TILE_SIZE * TILE_SIZE * 4L
         val sourceBytes = sourceWidth.toLong() * sourceHeight * 4L +
             inputWidth.toLong() * inputHeight * 4L
-        // Reserve room for decoder/encoder surfaces, QNN staging and normal app work.
-        val estimate = nativeOutputBytes + targetBytes + stripeBytes + tileBytes + sourceBytes + RESERVE_BYTES
+        val decoderSurfaceBytes = codedWidth.toLong() * codedHeight * 4L * 3L
+        val encoderSurfaceBytes = targetWidth.toLong() * targetHeight * 3L * 3L / 2L
+        // Include three decoder RGBA buffers and three encoder YUV420 buffers,
+        // plus QNN staging and normal app work.
+        val estimate = nativeOutputBytes + targetBytes + stripeBytes + tileBytes +
+            sourceBytes + decoderSurfaceBytes + encoderSurfaceBytes + RESERVE_BYTES
 
         val runtime = Runtime.getRuntime()
         val heapUsed = runtime.totalMemory() - runtime.freeMemory()

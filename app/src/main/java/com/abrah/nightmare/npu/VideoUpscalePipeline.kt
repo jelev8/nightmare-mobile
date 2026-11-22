@@ -187,10 +187,11 @@ class VideoUpscalePipeline(
         val durationUs = source.videoEndRelativeUs.coerceAtLeast(1L)
         val baseVideoBytes = bitRate.toLong() * durationUs / 8_000_000L
         val estimatedVideoBytes = baseVideoBytes + baseVideoBytes / 5L
+        val estimatedFinalBytes = estimatedVideoBytes + source.audioBytes
         // At peak, the intermediate and final MP4s can coexist; Results then
         // makes one private copy. Reserve an additional 128 MiB for filesystem
         // overhead, the poster, and app work.
-        val peakBytes = estimatedVideoBytes * 2L + 128L * 1024L * 1024L
+        val peakBytes = estimatedFinalBytes * 2L + 128L * 1024L * 1024L
         val availableBytes = android.os.StatFs(context.cacheDir.absolutePath).availableBytes
         if (availableBytes < peakBytes) {
             fun mib(bytes: Long) = String.format(java.util.Locale.US, "%.1f", bytes / 1_048_576.0)

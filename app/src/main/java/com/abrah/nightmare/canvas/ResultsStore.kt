@@ -369,7 +369,12 @@ class ResultsStore(private val dir: File) {
 
             var id = "r" + System.currentTimeMillis()
             var n = 1
-            while (meta(id).exists() || !png(id).createNewFile()) {
+            fun collides(candidate: String) =
+                meta(candidate).exists() || png(candidate).exists() || mp4(candidate).exists() ||
+                    File(dir, "$candidate.png.tmp").exists() ||
+                    File(dir, "$candidate.mp4.tmp").exists() ||
+                    File(dir, "$candidate.json.tmp").exists()
+            while (collides(id)) {
                 id = "r" + System.currentTimeMillis() + "_" + n++
             }
 

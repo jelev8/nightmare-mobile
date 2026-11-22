@@ -2487,10 +2487,16 @@ class HarnessViewModel(app: Application) : AndroidViewModel(app) {
             upscalingResult = spec.label
             toast("Upscaling video with ${spec.label}")
             val job = kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]
-            var thermalPaused = false
-            var thermalWarned = false
             var peakBattery = BatteryHeat.celsius(app) ?: 0.0
+            var thermalWarned = peakBattery >= BatteryHeat.WARN_AT
+            var thermalPaused = Prefs.heatPause && peakBattery >= Prefs.heatPauseAt.toDouble()
             var nextThermalCheck = 0L
+            if (thermalWarned) {
+                say("battery is ${BatteryHeat.format(peakBattery)} °C before video upscaling; keep the phone cool and off the charger")
+            }
+            if (thermalPaused) {
+                say("video upscale will pause at the first tile boundary until the battery cools to ${BatteryHeat.format(BatteryHeat.resumeAt(Prefs.heatPauseAt.toDouble()))} °C")
+            }
             try {
                 withContext(Dispatchers.IO) {
                     val source = com.abrah.nightmare.npu.VideoUpscaleInspector.inspect(sourceVideo)

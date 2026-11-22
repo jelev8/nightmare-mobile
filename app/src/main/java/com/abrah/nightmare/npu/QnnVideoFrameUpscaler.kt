@@ -59,14 +59,19 @@ class QnnVideoFrameUpscaler(
         require(input.dataType == FLOAT32_QNN_TYPE && output.dataType == FLOAT32_QNN_TYPE) {
             "expected float32 QNN tensors; got ${input.dataType}/${output.dataType}"
         }
+        val actualOutputNames = runner.outputNames(modelFile)
+        require(actualOutputNames.contentEquals(arrayOf(output.name))) {
+            "QNN output-name order does not match the inspected tensor metadata"
+        }
     }
 
     // Reused for every tile and every frame. A new 768x768x3 FloatArray per
     // tile would allocate about 6.75 MiB each time (hundreds of MiB per frame).
     private val tileInputBuffer = FloatArray(3 * TILE_SIZE * TILE_SIZE)
     private val tileOutputBuffer = FloatArray(3 * OUTPUT_TILE_SIZE * OUTPUT_TILE_SIZE)
-    private val inputBuffers = mapOf(input.name to tileInputBuffer)
-    private val outputBuffers = mapOf(output.name to tileOutputBuffer)
+    private val inputNames = arrayOf(input.name)
+    private val inputData = arrayOf(tileInputBuffer)
+    private val outputData = arrayOf(tileOutputBuffer)
 
     /**
      * @param scale Final scale presented to the user (2x, 3x or 4x). The model
@@ -191,7 +196,7 @@ class QnnVideoFrameUpscaler(
                     )
                     pixelsToChw(tilePixels, tileInputBuffer)
 
-                    runner.runInto(modelFile, inputBuffers, outputBuffers)
+                    runner.runInto(modelFile, inputNames, inputData, outputData)
                     val tileOutput = tileOutputBuffer
                     check(tileOutput.size == 3 * tilePlane) {
                         "QNN returned ${tileOutput.size} values; expected ${3 * tilePlane}"

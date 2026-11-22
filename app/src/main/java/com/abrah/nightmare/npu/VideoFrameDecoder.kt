@@ -56,14 +56,23 @@ object VideoUpscaleInspector {
         val extractor = MediaExtractor()
         try {
             extractor.setDataSource(file.absolutePath)
-            val videoTrack = (0 until extractor.trackCount).firstOrNull { index ->
+            val videoTracks = (0 until extractor.trackCount).filter { index ->
                 extractor.getTrackFormat(index).getString(MediaFormat.KEY_MIME)
                     ?.startsWith("video/") == true
-            } ?: throw IllegalArgumentException("the selected result has no video track")
-            val audioTrack = (0 until extractor.trackCount).firstOrNull { index ->
+            }
+            require(videoTracks.size == 1) {
+                if (videoTracks.isEmpty()) "the selected result has no video track"
+                else "multiple video tracks are not supported yet"
+            }
+            val audioTracks = (0 until extractor.trackCount).filter { index ->
                 extractor.getTrackFormat(index).getString(MediaFormat.KEY_MIME)
                     ?.startsWith("audio/") == true
             }
+            require(audioTracks.size <= 1) {
+                "multiple audio tracks are not supported yet; no audio track will be silently discarded"
+            }
+            val videoTrack = videoTracks.single()
+            val audioTrack = audioTracks.singleOrNull()
             val format = extractor.getTrackFormat(videoTrack)
             val codedWidth = format.getInteger(MediaFormat.KEY_WIDTH)
             val codedHeight = format.getInteger(MediaFormat.KEY_HEIGHT)

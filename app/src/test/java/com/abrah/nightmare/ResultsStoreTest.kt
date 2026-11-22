@@ -154,6 +154,72 @@ class ResultsStoreTest {
         assertNull("a clip whose file is gone is not a clip", s.clipFile(clip.id))
     }
 
+    @Test
+    fun upscaledVideoIsCommittedAsANewPrivateResultWithProvenance() {
+        val dir = tmp.newFolder()
+        val s = ResultsStore(dir)
+        val original = tmp.newFile("original.mp4").apply { writeBytes(ByteArray(4096) { 11 }) }
+        val source = s.keep(
+            bitmap(), "img_source", defaultWorkflow(), NODE_TYPES, "77", "source-model", "a test clip",
+            video = original,
+        )
+        val sourcePath = s.clipFile(source.id)!!
+        val output = tmp.newFile("upscaled.mp4").apply { writeBytes(ByteArray(8192) { 23 }) }
+
+        val derived = s.keepUpscaledVideo(
+            sourceId = source.id,
+            video = output,
+            poster = bitmap(128, 96),
+            workflow = s.flow(source.id)!!.workflow,
+            types = NODE_TYPES,
+            upscalerId = "upscaler_anime",
+            scale = 4,
+        )
+
+        assertTrue("derived result has a different id", derived.id != source.id)
+        assertEquals(source.id, derived.derivedFrom)
+        assertEquals("upscaler_anime", derived.upscalerId)
+        assertEquals(4, derived.upscaleFactor)
+        assertEquals(128, derived.width)
+        assertEquals(96, derived.height)
+        assertEquals(8192L, s.clipFile(derived.id)!!.length())
+        assertEquals("source clip remains unchanged", 4096L, sourcePath.length())
+        assertTrue("original input file remains untouched", original.isFile)
+
+        val reloaded = ResultsStore(dir).all().first { it.id == derived.id }
+        assertEquals(source.id, reloaded.derivedFrom)
+        assertEquals("upscaler_anime", reloaded.upscalerId)
+        assertEquals(4, reloaded.upscaleFactor)
+        assertNotNull("poster is present", s.full(derived.id))
+        assertNotNull("the original workflow remains attached", s.flow(derived.id))
+        assertTrue(s.details(derived.id).contains("video upscaler" to "upscaler_anime"))
+        assertTrue(s.details(derived.id).contains("upscale factor" to "4x"))
+
+        s.delete(derived.id)
+        assertTrue("deleting the derived result must not delete the source", sourcePath.isFile)
+    }
+
+    @Test
+    fun failedUpscaledVideoCommitLeavesNoPartialResult() {
+        val dir = tmp.newFolder()
+        val s = ResultsStore(dir)
+        val original = tmp.newFile("source.mp4").apply { writeBytes(ByteArray(512) { 1 }) }
+        val source = s.keep(
+            bitmap(), "img_source", defaultWorkflow(), NODE_TYPES, "1", "m", "source",
+            video = original,
+        )
+        val empty = tmp.newFile("empty.mp4")
+        try {
+            s.keepUpscaledVideo(source.id, empty, bitmap(), s.flow(source.id)!!.workflow, NODE_TYPES, "upscaler_anime", 4)
+            throw AssertionError("empty output must be rejected")
+        } catch (expected: IllegalArgumentException) {
+            assertTrue(expected.message!!.contains("missing or empty"))
+        }
+        assertEquals("only the source result remains", 1, s.all().size)
+        assertTrue("no temp files remain", dir.listFiles().orEmpty().none { it.name.endsWith(".tmp") })
+        assertNotNull(s.clipFile(source.id))
+    }
+
     /** ⚠ A picture result carries no clip, and must not invent an empty one. */
     @Test
     fun aKeptPictureHasNoClip() {

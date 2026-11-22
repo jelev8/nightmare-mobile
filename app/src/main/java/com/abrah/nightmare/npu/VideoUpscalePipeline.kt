@@ -168,7 +168,10 @@ class VideoUpscalePipeline(
                     log = log,
                 )
             }
-            verifyOutput(outputFile, source.audioTrack != null, outWidth, outHeight)
+            verifyOutput(
+                outputFile, source.audioTrack != null, outWidth, outHeight,
+                source.rotationDegrees, source.colorStandard, source.colorTransfer, source.colorRange,
+            )
             val posterBitmap = poster ?: throw IllegalStateException("the first output frame was not captured")
             poster = null // transfer ownership to caller
             val displayWidth = if (source.rotationDegrees == 90 || source.rotationDegrees == 270) outHeight else outWidth
@@ -219,7 +222,16 @@ class VideoUpscalePipeline(
         return rotated
     }
 
-    private fun verifyOutput(file: File, expectAudio: Boolean, width: Int, height: Int) {
+    private fun verifyOutput(
+        file: File,
+        expectAudio: Boolean,
+        width: Int,
+        height: Int,
+        rotation: Int,
+        colorStandard: Int?,
+        colorTransfer: Int?,
+        colorRange: Int?,
+    ) {
         check(file.isFile && file.length() > 0L) { "the final MP4 is missing or empty" }
         val extractor = MediaExtractor()
         try {
@@ -235,7 +247,33 @@ class VideoUpscalePipeline(
                 videoFormat.getInteger(MediaFormat.KEY_WIDTH) == width &&
                     videoFormat.getInteger(MediaFormat.KEY_HEIGHT) == height
             ) { "the final MP4 dimensions do not match the requested upscale output" }
-            check(audioCount == if (expectAudio) 1 else 0) {
+            if (videoFormat.containsKey(MediaFormat.KEY_ROTATION)) {
+                check(videoFormat.getInteger(MediaFormat.KEY_ROTATION) == rotation) {
+                    "the final MP4 rotation metadata does not match the source"
+                }
+            }
+            colorStandard?.let {
+                if (videoFormat.containsKey(MediaFormat.KEY_COLOR_STANDARD)) {
+                    check(videoFormat.getInteger(MediaFormat.KEY_COLOR_STANDARD) == it) {
+                        "the final MP4 color-standard metadata changed"
+                    }
+                }
+            }
+            colorTransfer?.let {
+                if (videoFormat.containsKey(MediaFormat.KEY_COLOR_TRANSFER)) {
+                    check(videoFormat.getInteger(MediaFormat.KEY_COLOR_TRANSFER) == it) {
+                        "the final MP4 color-transfer metadata changed"
+                    }
+                }
+            }
+            colorRange?.let {
+                if (videoFormat.containsKey(MediaFormat.KEY_COLOR_RANGE)) {
+                    check(videoFormat.getInteger(MediaFormat.KEY_COLOR_RANGE) == it) {
+                        "the final MP4 color-range metadata changed"
+                    }
+                }
+            }
+            check(audioCount == (if (expectAudio) 1 else 0)) {
                 if (expectAudio) "the source had audio, but the final MP4 has no audio track"
                 else "an unexpected audio track appeared in the final MP4"
             }

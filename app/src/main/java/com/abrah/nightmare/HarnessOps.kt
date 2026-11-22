@@ -256,6 +256,8 @@ class HarnessOps(private val ctx: Context, private val sink: Sink) {
             // ⭐ The in-process NPU runner, on the phone, with nothing else
             // required: no backend process, no checkpoint, no 8.5 GB download.
             "npu_canary" -> npuCanary()
+            // ⭐ Read-only compatibility probe for the two built-in image upscaler contexts.
+            "upscaler_qnn_probe" -> upscalerQnnProbe()
             // ⭐ The whole video recipe, headless. `--es arg "a dog running"`.
             "npu_video" -> npuVideo(arg)
             // ⭐⭐ What the video path is still missing, and fetching it.
@@ -1753,6 +1755,77 @@ class HarnessOps(private val ctx: Context, private val sink: Sink) {
         // ⚠ Released, not left resident: this op can be run repeatedly while
         // something else holds memory, and a canary is not worth 58 KB of it.
         runner.releaseAll()
+    }
+
+    /**
+     * Read-only device probe: prove the installed built-in upscaler QNN contexts
+     * can be loaded and executed through the in-process runner before any video
+     * pipeline is attempted. Does not download, modify, or write model files.
+     */
+    private suspend fun upscalerQnnProbe() {
+        if (!RunLock.tryAcquire("upscaler-qnn-probe")) {
+            say("upscaler probe refused: ${RunLock.heldBy} is already running", bad = true)
+            return
+        }
+        val runner = com.abrah.nightmare.npu.QnnRunner(ctx)
+        try {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                val specs = listOf("upscaler_anime", "upscaler_realistic")
+                for (id in specs) {
+                    val path = UpscalerCatalog.pathFor(ctx, id)
+                    if (path == null) {
+                        say("$id: not installed; skipped")
+                        continue
+                    }
+                    val bin = java.io.File(path)
+                    say("$id: inspecting ${bin.length()} bytes")
+                    try {
+                        val metadata = runner.describe(bin)
+                        say("$id metadata: $metadata")
+                        val tensors = Regex("""(in|out) ([^:;]+):([0-9,]+):([0-9]+);""")
+                            .findAll(metadata).map { m ->
+                                Triple(m.groupValues[1], m.groupValues[2],
+                                    Pair(m.groupValues[3].split(',').map(String::toInt), m.groupValues[4].toInt()))
+                            }.toList()
+                        val inputs = tensors.filter { it.first == "in" }
+                        val outputs = tensors.filter { it.first == "out" }
+                        check(inputs.size == 1 && outputs.size == 1) {
+                            "expected one input and one output; got ${inputs.size}/${outputs.size}"
+                        }
+                        check(inputs[0].third.first == listOf(1, 3, 192, 192)) {
+                            "unexpected input shape ${inputs[0].third.first}"
+                        }
+                        check(outputs[0].third.first == listOf(1, 3, 768, 768)) {
+                            "unexpected output shape ${outputs[0].third.first}"
+                        }
+                        // Upstream's QNN upscaler copies float32 buffers directly.
+                        check(inputs[0].third.second == 0x0232 && outputs[0].third.second == 0x0232) {
+                            "expected float32 input/output (QNN type 562); got ${inputs[0].third.second}/${outputs[0].third.second}"
+                        }
+                        val input = FloatArray(3 * 192 * 192)
+                        val result = runner.run(bin, mapOf(inputs[0].second to input))
+                        val output = result[outputs[0].second]
+                            ?: error("missing output tensor ${outputs[0].second}")
+                        check(output.size == 3 * 768 * 768) {
+                            "wrong output element count ${output.size}"
+                        }
+                        var min = Float.POSITIVE_INFINITY
+                        var max = Float.NEGATIVE_INFINITY
+                        for (v in output) {
+                            check(v.isFinite()) { "output contains NaN or infinity" }
+                            if (v < min) min = v
+                            if (v > max) max = v
+                        }
+                        say("$id: PASS — loaded and executed; output ${output.size} values, range ${"%.5f".format(min)}..${"%.5f".format(max)}")
+                    } catch (e: Exception) {
+                        say("$id: FAIL — ${e.javaClass.simpleName}: ${e.message}", bad = true)
+                    }
+                }
+            }
+        } finally {
+            runner.releaseAll()
+            RunLock.release("upscaler-qnn-probe")
+        }
     }
 
     /**

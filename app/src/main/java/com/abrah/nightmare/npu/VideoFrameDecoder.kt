@@ -79,6 +79,9 @@ object VideoUpscaleInspector {
             val audioMime = audioTrack?.let {
                 extractor.getTrackFormat(it).getString(MediaFormat.KEY_MIME)
             }
+            if (audioTrack != null) {
+                require(audioMime != null) { "the source audio track has no MIME type" }
+            }
             if (audioMime != null && audioMime !in setOf("audio/mp4a-latm", "audio/3gpp", "audio/amr-wb")) {
                 throw IllegalArgumentException(
                     "the source audio codec ($audioMime) cannot be preserved in an Android MP4; " +

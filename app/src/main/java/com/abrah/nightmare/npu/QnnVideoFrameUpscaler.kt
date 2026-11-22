@@ -167,6 +167,7 @@ class QnnVideoFrameUpscaler(
             val tileInput = FloatArray(3 * TILE_SIZE * TILE_SIZE)
             val rowPixels = IntArray(outW)
             val tilePlane = OUTPUT_TILE_SIZE * OUTPUT_TILE_SIZE
+            val tileFade = FloatArray(OUTPUT_TILE_SIZE) { QnnUpscaleTiling.fade(it) }
             var completed = 0
 
             for (yi in ys.indices) {
@@ -190,22 +191,24 @@ class QnnVideoFrameUpscaler(
                     check(tileOutput.size == 3 * tilePlane) {
                         "QNN returned ${tileOutput.size} values; expected ${3 * tilePlane}"
                     }
-                    for (v in tileOutput) {
-                        check(v.isFinite()) { "QNN output contains NaN or infinity" }
-                    }
-
                     val globalX = tileX * NATIVE_SCALE
                     for (ty in 0 until OUTPUT_TILE_SIZE) {
                         val wy = QnnUpscaleTiling.fade(ty)
                         val stripeRow = ty * outW + globalX
                         val tileRow = ty * OUTPUT_TILE_SIZE
                         for (tx in 0 until OUTPUT_TILE_SIZE) {
-                            val weight = wy * QnnUpscaleTiling.fade(tx)
+                            val weight = wy * tileFade[tx]
                             val dst = stripeRow + tx
                             val src = tileRow + tx
-                            accum[dst] += tileOutput[src] * weight
-                            accum[stripePlane + dst] += tileOutput[tilePlane + src] * weight
-                            accum[2 * stripePlane + dst] += tileOutput[2 * tilePlane + src] * weight
+                            val red = tileOutput[src]
+                            val green = tileOutput[tilePlane + src]
+                            val blue = tileOutput[2 * tilePlane + src]
+                            check(red.isFinite() && green.isFinite() && blue.isFinite()) {
+                                "QNN output contains NaN or infinity"
+                            }
+                            accum[dst] += red * weight
+                            accum[stripePlane + dst] += green * weight
+                            accum[2 * stripePlane + dst] += blue * weight
                         }
                     }
                     completed++

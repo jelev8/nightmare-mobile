@@ -272,12 +272,16 @@ class VideoFrameDecoder(
         }
     }
 
-    fun nextFrame(isCancelled: () -> Boolean = { false }): DecodedVideoFrame? {
+    fun nextFrame(
+        isCancelled: () -> Boolean = { false },
+        heartbeat: () -> Unit = {},
+    ): DecodedVideoFrame? {
         check(!closed) { "video decoder is closed" }
         if (outputEnded) return null
         val info = MediaCodec.BufferInfo()
         val deadline = SystemClock.elapsedRealtime() + DECODER_FRAME_TIMEOUT_MS
         while (true) {
+            heartbeat()
             if (isCancelled()) throw CancellationException("video upscale cancelled")
             check(SystemClock.elapsedRealtime() < deadline) {
                 "video decoder stopped delivering frames"
@@ -331,7 +335,7 @@ class VideoFrameDecoder(
                         val pts = info.presentationTimeUs
                         decoder.releaseOutputBuffer(outputIndex, true)
                         if (eos) outputEnded = true
-                        val image = awaitImage(isCancelled)
+                        val image = awaitImage(isCancelled, heartbeat)
                         val bitmap = try {
                             imageToBitmap(image, source.crop)
                         } finally {
@@ -349,9 +353,10 @@ class VideoFrameDecoder(
         }
     }
 
-    private fun awaitImage(isCancelled: () -> Boolean): Image {
+    private fun awaitImage(isCancelled: () -> Boolean, heartbeat: () -> Unit): Image {
         val deadline = SystemClock.elapsedRealtime() + IMAGE_TIMEOUT_MS
         while (SystemClock.elapsedRealtime() < deadline) {
+            heartbeat()
             if (isCancelled()) throw CancellationException("video upscale cancelled")
             val image = reader.acquireNextImage()
             if (image != null) return image

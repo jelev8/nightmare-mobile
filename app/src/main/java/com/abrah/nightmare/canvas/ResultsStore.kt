@@ -349,12 +349,15 @@ class ResultsStore(private val dir: File) {
         types: Map<String, NodeType>,
         upscalerId: String,
         scale: Int,
+        resultWidth: Int = poster.width,
+        resultHeight: Int = poster.height,
     ): Result {
         require(sourceId.isNotBlank()) { "missing source result" }
         require(upscalerId.isNotBlank()) { "missing upscaler id" }
         require(scale > 0) { "invalid upscale factor" }
         require(video.isFile && video.length() > 0L) { "upscaled video is missing or empty" }
         require(poster.width > 0 && poster.height > 0) { "invalid video poster" }
+        require(resultWidth > 0 && resultHeight > 0) { "invalid upscaled video dimensions" }
 
         synchronized(KEEP_LOCK) {
             dir.mkdirs()
@@ -393,8 +396,8 @@ class ResultsStore(private val dir: File) {
                     .put("seed", source.seed ?: JSONObject.NULL)
                     .put("model", source.model ?: JSONObject.NULL)
                     .put("prompt", source.prompt ?: JSONObject.NULL)
-                    .put("width", poster.width)
-                    .put("height", poster.height)
+                    .put("width", resultWidth)
+                    .put("height", resultHeight)
                     .put("batchId", JSONObject.NULL)
                     .put("batchLabel", "")
                     .put("favourite", false)
@@ -416,8 +419,8 @@ class ResultsStore(private val dir: File) {
                     seed = source.seed,
                     model = source.model,
                     prompt = source.prompt,
-                    width = poster.width,
-                    height = poster.height,
+                    width = resultWidth,
+                    height = resultHeight,
                     videoPath = mp4(id).absolutePath,
                     derivedFrom = sourceId,
                     upscalerId = upscalerId,

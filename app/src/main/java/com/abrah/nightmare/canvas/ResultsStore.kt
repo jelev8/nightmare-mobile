@@ -348,8 +348,8 @@ class ResultsStore(private val dir: File) {
         sourceId: String,
         video: File,
         poster: Bitmap,
-        workflow: Workflow,
-        types: Map<String, NodeType>,
+        workflow: Workflow?,
+        types: Map<String, NodeType> = emptyMap(),
         upscalerId: String,
         scale: Int,
         resultWidth: Int = poster.width,
@@ -358,7 +358,7 @@ class ResultsStore(private val dir: File) {
     ): Result {
         require(sourceId.isNotBlank()) { "missing source result" }
         require(upscalerId.isNotBlank()) { "missing upscaler id" }
-        require(scale > 0) { "invalid upscale factor" }
+        require(scale in 2..4) { "saved-video upscale scale must be 2x, 3x, or 4x" }
         require(video.isFile && video.length() > 0L) { "upscaled video is missing or empty" }
         require(poster.width > 0 && poster.height > 0) { "invalid video poster" }
         require(resultWidth > 0 && resultHeight > 0) { "invalid upscaled video dimensions" }

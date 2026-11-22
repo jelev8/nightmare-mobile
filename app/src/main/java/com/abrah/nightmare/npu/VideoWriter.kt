@@ -128,6 +128,9 @@ object VideoWriter {
         presentationTimeUsAt: ((Int) -> Long)? = null,
         /** Container rotation metadata, restricted to the MP4 orientation values. */
         orientationDegrees: Int = 0,
+        colorStandard: Int? = null,
+        colorTransfer: Int? = null,
+        colorRange: Int? = null,
         frameAt: (Int) -> Bitmap,
     ): File {
         require(count > 0) { "no frames to write" }
@@ -138,7 +141,7 @@ object VideoWriter {
         require(w % 2 == 0 && h % 2 == 0) { "odd frame size ${w}x$h" }
         val software = softwareAvcEncoder()
         try {
-            return encodeOnce(null, count, w, h, fps, out, log, isCancelled, presentationTimeUsAt, orientationDegrees, frameAt)
+            return encodeOnce(null, count, w, h, fps, out, log, isCancelled, presentationTimeUsAt, orientationDegrees, colorStandard, colorTransfer, colorRange, frameAt)
         } catch (e: EncoderStalled) {
             if (software == null || e.codecName == software) throw e
             log("      ${e.message}. Trying again on the software encoder")
@@ -164,6 +167,9 @@ object VideoWriter {
         isCancelled: () -> Boolean,
         presentationTimeUsAt: ((Int) -> Long)?,
         orientationDegrees: Int,
+        colorStandard: Int?,
+        colorTransfer: Int?,
+        colorRange: Int?,
         frameAt: (Int) -> Bitmap,
     ): File {
         // Encode to a temp file first. MediaMuxer needs a seekable FileDescriptor, and a
@@ -181,6 +187,9 @@ object VideoWriter {
             // VFR source timestamps are assigned in muxer order below. Disable
             // B-frame reordering so each encoded sample still maps to frameAt(i).
             if (presentationTimeUsAt != null) setInteger(MediaFormat.KEY_MAX_B_FRAMES, 0)
+            colorStandard?.let { setInteger(MediaFormat.KEY_COLOR_STANDARD, it) }
+            colorTransfer?.let { setInteger(MediaFormat.KEY_COLOR_TRANSFER, it) }
+            colorRange?.let { setInteger(MediaFormat.KEY_COLOR_RANGE, it) }
         }
 
         val codec = codecName?.let { MediaCodec.createByCodecName(it) } ?: MediaCodec.createEncoderByType(MIME)

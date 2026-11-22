@@ -90,7 +90,9 @@ object VideoUpscaleInspector {
             val format = extractor.getTrackFormat(videoTrack)
             val codedWidth = format.getInteger(MediaFormat.KEY_WIDTH)
             val codedHeight = format.getInteger(MediaFormat.KEY_HEIGHT)
-            require(codedWidth > 0 && codedHeight > 0) { "invalid source video dimensions" }
+            require(codedWidth in 1..16_384 && codedHeight in 1..16_384) {
+                "source video dimensions exceed the supported decoder limit"
+            }
 
             val transfer = format.intOrNull(MediaFormat.KEY_COLOR_TRANSFER)
             if (transfer != null && transfer !in setOf(0, 2, MediaFormat.COLOR_TRANSFER_SDR_VIDEO)) {

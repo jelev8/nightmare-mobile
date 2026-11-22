@@ -2467,6 +2467,10 @@ class HarnessViewModel(app: Application) : AndroidViewModel(app) {
             toast(text(R.string.upscale_no_upscaler, upscalerId))
             return
         }
+        if (spec.ggml || upscalerId !in setOf("upscaler_anime", "upscaler_realistic")) {
+            toast("Saved-video upscaling currently supports the built-in Anime 4x and Realistic 4x models only.")
+            return
+        }
         val modelPath = UpscalerCatalog.pathFor(app, upscalerId)
         if (modelPath == null || !java.io.File(modelPath).isFile) {
             toast("The selected upscaler is not installed. Install it first in Models.")

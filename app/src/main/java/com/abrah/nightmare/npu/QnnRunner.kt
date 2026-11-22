@@ -110,6 +110,28 @@ class QnnRunner(private val context: Context) {
         return outNames.indices.associate { outNames[it] to out[it] }
     }
 
+    /**
+     * Execute a graph using caller-owned output buffers. Unlike [run], this
+     * method reuses those arrays across repeated tile executions.
+     */
+    fun runInto(
+        bin: File,
+        inputs: Map<String, FloatArray>,
+        outputs: Map<String, FloatArray>,
+    ) {
+        val handle = handleOf(bin)
+        val inputNames = inputs.keys.toTypedArray()
+        val inputData = inputNames.map { inputs.getValue(it) }.toTypedArray()
+        val outputNames = NativeQnn.outputNames(handle)
+        check(outputs.size == outputNames.size && outputNames.all(outputs::containsKey)) {
+            "${bin.name}: output buffers must match the graph's named outputs"
+        }
+        val outputData = outputNames.map { outputs.getValue(it) }.toTypedArray()
+        check(NativeQnn.executeInto(handle, inputNames, inputData, outputData)) {
+            "${bin.name} execute failed: ${NativeQnn.lastError()}"
+        }
+    }
+
     /** ⚠ Frees the context. The next [run] reloads it from flash. */
     @Synchronized
     fun release(bin: File) {

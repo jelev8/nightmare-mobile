@@ -260,7 +260,15 @@ object VideoWriter {
                     }
                     idx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
                         check(!muxing) { "format changed twice" }
-                        track = muxer.addTrack(codec.outputFormat)
+                        val outputFormat = codec.outputFormat
+                        if (presentationTimeUsAt != null &&
+                            outputFormat.containsKey(MediaFormat.KEY_OUTPUT_REORDER_DEPTH)
+                        ) {
+                            check(outputFormat.getInteger(MediaFormat.KEY_OUTPUT_REORDER_DEPTH) == 0) {
+                                "the selected encoder reordered frames despite B-frames being disabled"
+                            }
+                        }
+                        track = muxer.addTrack(outputFormat)
                         muxer.start(); muxing = true
                     }
                     idx >= 0 -> {
@@ -281,10 +289,10 @@ object VideoWriter {
                             // and does not set presentation time.
                             //
                             // The container's timestamps are what a player obeys, so
-                            // writing an exact 1/fps cadence here fixes playback
-                            // regardless of how fast the encoder was fed. Output order
-                            // equals input order because H.264 baseline here has no
-                            // B-frames, so a simple counter is correct.
+                            // writing an exact source PTS here fixes playback
+                            // regardless of how fast the encoder was fed. The VFR
+                            // mode requests zero B-frames and checks the output
+                            // reorder depth where the encoder reports it.
                             check(outFrame < count) { "encoder produced more frames than were submitted" }
                             val pts = presentationTimeUsAt?.invoke(outFrame.toInt())
                                 ?: (outFrame * 1_000_000L / fps)

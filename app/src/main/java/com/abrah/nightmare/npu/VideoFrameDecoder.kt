@@ -12,7 +12,6 @@ import android.os.SystemClock
 import java.io.Closeable
 import java.io.File
 import java.nio.ByteBuffer
-import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -63,14 +62,13 @@ object VideoUpscaleInspector {
                     ?.startsWith("audio/") == true
             }
             val format = extractor.getTrackFormat(videoTrack)
-            val mime = format.getString(MediaFormat.KEY_MIME)
-                ?: throw IllegalArgumentException("the source video has no codec MIME type")
             val codedWidth = format.getInteger(MediaFormat.KEY_WIDTH)
             val codedHeight = format.getInteger(MediaFormat.KEY_HEIGHT)
             require(codedWidth > 0 && codedHeight > 0) { "invalid source video dimensions" }
 
             val transfer = format.intOrNull(MediaFormat.KEY_COLOR_TRANSFER)
-            if (transfer != null && transfer != MediaFormat.COLOR_TRANSFER_SDR_VIDEO &&
+            if (transfer != null && transfer != 0 &&
+                transfer != MediaFormat.COLOR_TRANSFER_SDR_VIDEO &&
                 transfer != MediaFormat.COLOR_TRANSFER_SRGB
             ) {
                 throw IllegalArgumentException("HDR or non-SDR video is not supported yet")
@@ -101,12 +99,10 @@ object VideoUpscaleInspector {
 
             extractor.selectTrack(videoTrack)
             val pts = ArrayList<Long>()
-            var previous = -1L
             while (extractor.sampleTrackIndex >= 0) {
                 val time = extractor.sampleTime
                 require(time >= 0L) { "the video contains a sample without a presentation timestamp" }
                 pts += time
-                previous = max(previous, time)
                 require(pts.size <= MAX_FRAMES) { "the source video contains too many frames for one job" }
                 if (!extractor.advance()) break
             }

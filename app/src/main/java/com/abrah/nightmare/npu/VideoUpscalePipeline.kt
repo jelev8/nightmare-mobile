@@ -292,6 +292,9 @@ private object StrictVideoAudioMuxer {
                     // Preserve the complete compressed audio track, including a
                     // legitimate start offset or a short tail beyond the final
                     // video sample. Never silently trim source audio.
+                    check(audio.sampleFlags and MediaExtractor.SAMPLE_FLAG_ENCRYPTED == 0) {
+                        "DRM-encrypted audio is not supported"
+                    }
                     val sample = audioSample!!
                     check(audioPts >= 0L && audioPts > lastAudioPts) {
                         "source audio samples have missing, duplicate or non-monotonic timestamps"

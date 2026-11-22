@@ -1,0 +1,9 @@
+name: Upload fork test APK
+description: Uploads the side-by-side debug APK as a short-lived workflow artifact.
+inputs:
+  apk-path:
+    description: Path to the APK relative to the workspace.
+    required: true
+runs:
+  using: node24
+  main: index.mjs

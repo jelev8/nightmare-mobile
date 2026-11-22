@@ -1,0 +1,142 @@
+name: fork-test-apk
+
+on:
+  push:
+    branches:
+      - video-upscaling-integration
+    paths:
+      - ".github/workflows/fork-test-apk.yml"
+      - ".github/actions/upload-apk/**"
+      - "app/**"
+      - "tools/**"
+      - "build.gradle.kts"
+      - "settings.gradle.kts"
+      - "gradle/**"
+      - "gradlew"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # Deliberately opt-in: setup commits and ordinary development pushes do not start a build.
+    if: contains(github.event.head_commit.message, '[run-fork-apk]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+
+    steps:
+      - name: Select Java 17
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "${JAVA_HOME_17_X64:-}" ]]; then
+            echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
+            echo "$JAVA_HOME_17_X64/bin" >> "$GITHUB_PATH"
+          fi
+          java -version
+          node --version
+          npm --version
+
+      - name: Fetch exact source commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init source
+          git -C source remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git -C source fetch --depth=1 origin "${GITHUB_SHA}"
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = "${GITHUB_SHA}"
+          echo "Building ${GITHUB_SHA}"
+
+      - name: Install Android build components
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [[ ! -x "$SDKMANAGER" ]]; then
+            echo "::error::Android sdkmanager not found at $SDKMANAGER"
+            exit 1
+          fi
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+          PACKAGES=(
+            "platform-tools"
+            "platforms;android-35"
+            "build-tools;35.0.0"
+            "cmake;3.22.1"
+            "cmake;4.1.2"
+            "ndk;29.0.14206865"
+          )
+          "$SDKMANAGER" --install "${PACKAGES[@]}" || "$SDKMANAGER" --channel=3 --install "${PACKAGES[@]}"
+          test -d "$ANDROID_HOME/ndk/29.0.14206865"
+
+      - name: Fetch licensed QAIRT 2.49 headers
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_URL="https://softwarecenter.qualcomm.com/api/download/software/sdks/Qualcomm_AI_Runtime_Community/All/2.49.0.260730/v2.49.0.260730.zip"
+          SDK_ZIP="$RUNNER_TEMP/qairt-2.49.0.260730.zip"
+          SDK_DIR="$RUNNER_TEMP/qairt-sdk"
+          curl --fail --location --retry 3 --retry-all-errors --connect-timeout 30 "$SDK_URL" -o "$SDK_ZIP"
+          mkdir -p "$SDK_DIR"
+          unzip -q "$SDK_ZIP" -d "$SDK_DIR"
+          HEADER="$(find "$SDK_DIR" -type f -path '*/include/QNN/QnnBackend.h' -print -quit)"
+          if [[ -z "$HEADER" ]]; then
+            echo "::error::Official QAIRT archive did not contain include/QNN/QnnBackend.h"
+            exit 1
+          fi
+          SDK_ROOT="${HEADER%/include/QNN/QnnBackend.h}"
+          BUILD_ID_FILE="$SDK_ROOT/include/QNN/QnnSdkBuildId.h"
+          if [[ ! -f "$BUILD_ID_FILE" ]] || ! grep -q 'v2.49.0.260730' "$BUILD_ID_FILE"; then
+            echo "::error::Expected QAIRT 2.49.0.260730 headers; refusing a mismatched SDK"
+            cat "$BUILD_ID_FILE" 2>/dev/null || true
+            exit 1
+          fi
+          mkdir -p source/app/src/main/cpp/include
+          cp -a "$SDK_ROOT/include/QNN" source/app/src/main/cpp/include/
+          echo "Verified and staged QAIRT headers: $(grep 'QNN_SDK_BUILD_ID' "$BUILD_ID_FILE")"
+          rm -rf "$SDK_DIR" "$SDK_ZIP"
+
+      - name: Fetch pinned QuickJS source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          pwsh -NoLogo -NoProfile -File tools/fetch_quickjs.ps1
+
+      - name: Build pinned Foxlet dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          FOXLET_DIR="$RUNNER_TEMP/foxlet-translate" bash tools/build_foxlet.sh
+
+      - name: Run focused tests and build side-by-side APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          ./gradlew --no-daemon --stacktrace \
+            :app:testDebugUnitTest \
+            :app:assembleDebug \
+            -PforkTest=true
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep -F "package: name='com.abrah.nightmare.forktest'"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
+          sha256sum "$APK"
+          ls -lh "$APK"
+
+      - name: Install pinned artifact uploader dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --prefix source/.github/actions/upload-apk --ignore-scripts --no-audit --no-fund
+          npm audit --prefix source/.github/actions/upload-apk --omit=dev --audit-level=high
+
+      - name: Upload test APK (one-day retention)
+        uses: ./source/.github/actions/upload-apk
+        with:
+          apk-path: source/app/build/outputs/apk/debug/app-debug.apk

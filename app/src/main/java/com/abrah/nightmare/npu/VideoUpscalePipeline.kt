@@ -328,9 +328,16 @@ private object StrictVideoAudioMuxer {
 
     private fun read(extractor: MediaExtractor, buffer: ByteBuffer): Int {
         buffer.clear()
+        val expectedSize = extractor.sampleSize
+        if (expectedSize < 0L) return -1
+        check(expectedSize > 0L) { "compressed media track contains an empty sample" }
+        check(expectedSize <= buffer.capacity().toLong()) {
+            "compressed media sample ($expectedSize bytes) exceeds the safe mux buffer size (${buffer.capacity()} bytes)"
+        }
         val size = extractor.readSampleData(buffer, 0)
-        check(size != 0) { "compressed media track contains an empty sample" }
-        check(size <= buffer.capacity()) { "compressed media sample exceeds the safe mux buffer size" }
+        check(size > 0 && size.toLong() == expectedSize) {
+            "could not read the complete compressed media sample"
+        }
         return size
     }
 }

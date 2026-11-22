@@ -9,7 +9,6 @@ import android.media.MediaFormat
 import android.media.MediaMuxer
 import java.io.File
 import java.nio.ByteBuffer
-import java.util.UUID
 import kotlinx.coroutines.CancellationException
 
 /**
@@ -267,10 +266,9 @@ private object StrictVideoAudioMuxer {
                     video.advance()
                     videoSize = read(video, videoBuffer)
                 } else {
-                    if (audioPts >= source.videoEndRelativeUs) {
-                        audioSize = -1
-                        continue
-                    }
+                    // Preserve the complete compressed audio track, including a
+                    // legitimate start offset or a short tail beyond the final
+                    // video sample. Never silently trim source audio.
                     check(audioPts >= 0L) { "source audio sample precedes the common timeline origin" }
                     info.set(0, audioSize, audioPts, 0)
                     audioBuffer.position(0)

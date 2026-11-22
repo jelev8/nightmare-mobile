@@ -115,7 +115,9 @@ class QnnRunner(private val context: Context) {
      * Execute a graph using caller-owned output buffers. Unlike [run], this
      * method reuses those arrays across repeated tile executions.
      */
-    fun outputNames(bin: File): Array<String> = synchronized(this) {
+    fun outputNames(bin: File): Array<String> = cachedOutputNames(bin).clone()
+
+    private fun cachedOutputNames(bin: File): Array<String> = synchronized(this) {
         outputNameCache[bin.absolutePath] ?: NativeQnn.outputNames(handleOf(bin)).also {
             outputNameCache[bin.absolutePath] = it
         }
@@ -130,7 +132,7 @@ class QnnRunner(private val context: Context) {
     ) {
         check(inputNames.size == inputData.size) { "QNN input names/data count mismatch" }
         val handle = handleOf(bin)
-        val expectedOutputs = outputNames(bin)
+        val expectedOutputs = cachedOutputNames(bin)
         check(outputTensorNames.contentEquals(expectedOutputs) &&
             outputData.size == expectedOutputs.size
         ) { "${bin.name}: reusable output buffers do not match the graph's output order" }

@@ -129,9 +129,8 @@ jobs:
             --tests 'com.abrah.nightmare.ResultsStoreTest' \
             --tests 'com.abrah.nightmare.npu.QnnUpscaleTilingTest' \
             -x :app:testResultsFullscreen \
-            :app:assembleDebug \
-            -PforkTest=true
-          APK="app/build/outputs/apk/debug/app-debug.apk"
+            :app:assembleForkTest
+          APK="app/build/outputs/apk/forkTest/app-forkTest.apk"
           test -s "$APK"
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep -F "package: name='com.abrah.nightmare.forktest'"
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"

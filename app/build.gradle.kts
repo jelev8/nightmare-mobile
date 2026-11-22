@@ -31,8 +31,6 @@ val keystoreProps = Properties().apply {
 }
 
 
-val forkTestBuild = providers.gradleProperty("forkTest").orNull == "true"
-
 android {
     namespace = "com.abrah.nightmare"
     compileSdk = 35
@@ -125,12 +123,16 @@ android {
         // not a principle, and stack traces are what it buys.
         debug {
             isMinifyEnabled = false
-            // Opt-in side-by-side test identity; normal builds retain the upstream application ID.
-            if (forkTestBuild) {
-                applicationIdSuffix = ".forktest"
-                versionNameSuffix = "-forktest"
-                resValue("string", "app_name", "Nightmare Fork Test")
-            }
+        }
+        // Temporary, isolated build used only for on-device video-upscaling tests.
+        // Its manifest and importer source exist only in src/forkTest.
+        create("forkTest") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".forktest"
+            versionNameSuffix = "-forktest"
+            resValue("string", "app_name", "Nightmare Fork Test")
+            buildConfigField("boolean", "FORK_TEST", "true")
+            matchingFallbacks += listOf("debug")
         }
         release {
             // âš  Null when there is no keystore, which leaves the APK unsigned

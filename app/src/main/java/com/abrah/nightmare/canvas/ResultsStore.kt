@@ -386,7 +386,7 @@ class ResultsStore(private val dir: File) {
             val tmpMp4 = File(dir, "$id.mp4.tmp")
             val tmpMeta = File(dir, "$id.json.tmp")
             try {
-                check(!isCancelled()) { "video upscale cancelled before saving Results" }
+                if (isCancelled()) throw CancellationException("video upscale cancelled before saving Results")
                 FileOutputStream(tmpPng).use { stream ->
                     if (!poster.compress(Bitmap.CompressFormat.PNG, 100, stream)) {
                         throw java.io.IOException("the video poster could not be encoded")
@@ -394,14 +394,14 @@ class ResultsStore(private val dir: File) {
                     stream.fd.sync()
                 }
                 check(tmpPng.isFile && tmpPng.length() > 0L) { "the video poster is empty" }
-                check(!isCancelled()) { "video upscale cancelled while saving the poster" }
+                if (isCancelled()) throw CancellationException("video upscale cancelled while saving the poster")
                 check(tmpPng.renameTo(png(id))) { "could not commit the video poster" }
 
                 FileInputStream(video).use { input ->
                     FileOutputStream(tmpMp4).use { output ->
                         val buffer = ByteArray(1024 * 1024)
                         while (true) {
-                            check(!isCancelled()) { "video upscale cancelled while copying the MP4 into Results" }
+                            if (isCancelled()) throw CancellationException("video upscale cancelled while copying the MP4 into Results")
                             val count = input.read(buffer)
                             if (count < 0) break
                             output.write(buffer, 0, count)
@@ -412,7 +412,7 @@ class ResultsStore(private val dir: File) {
                 check(tmpMp4.length() == video.length() && tmpMp4.length() > 0L) {
                     "the upscaled video copy is incomplete"
                 }
-                check(!isCancelled()) { "video upscale cancelled before committing the MP4" }
+                if (isCancelled()) throw CancellationException("video upscale cancelled before committing the MP4")
                 check(tmpMp4.renameTo(mp4(id))) { "could not commit the upscaled video" }
 
                 val savedAt = System.currentTimeMillis()
@@ -439,7 +439,7 @@ class ResultsStore(private val dir: File) {
                     stream.fd.sync()
                 }
                 check(tmpMeta.isFile && tmpMeta.length() > 0L) { "the video result metadata is empty" }
-                check(!isCancelled()) { "video upscale cancelled before committing result metadata" }
+                if (isCancelled()) throw CancellationException("video upscale cancelled before committing result metadata")
                 check(tmpMeta.renameTo(meta(id))) { "could not commit the video result metadata" }
 
                 return Result(

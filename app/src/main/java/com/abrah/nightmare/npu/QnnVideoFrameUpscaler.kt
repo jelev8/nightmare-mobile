@@ -3,7 +3,6 @@ package com.abrah.nightmare.npu
 import android.app.ActivityManager
 import android.content.Context
 import android.graphics.Bitmap
-import com.abrah.nightmare.QnnRunner
 import java.io.File
 import java.util.Arrays
 import java.util.Locale
@@ -25,6 +24,7 @@ class QnnVideoFrameUpscaler(
     private val modelFile: File,
 ) {
     private data class Tensor(
+        val direction: String,
         val name: String,
         val shape: List<Int>,
         val dataType: Int,
@@ -40,14 +40,14 @@ class QnnVideoFrameUpscaler(
         val description = runner.describe(modelFile)
         val tensors = TENSOR_PATTERN.findAll(description).map { match ->
             Tensor(
+                direction = match.groupValues[1],
                 name = match.groupValues[2].trim(),
                 shape = match.groupValues[3].split(',').map(String::toInt),
                 dataType = match.groupValues[4].toInt(),
             )
         }.toList()
-        val inputs = tensors.filter { TENSOR_PATTERN.findAll(description).toList().isNotEmpty() &&
-            description.contains("in ${it.name}:") }
-        val outputs = tensors.filter { description.contains("out ${it.name}:") }
+        val inputs = tensors.filter { it.direction == "in" }
+        val outputs = tensors.filter { it.direction == "out" }
         require(inputs.size == 1 && outputs.size == 1) {
             "expected one QNN input and output; found ${inputs.size}/${outputs.size}"
         }
@@ -90,7 +90,6 @@ class QnnVideoFrameUpscaler(
         var working = source
         var ownsWorking = false
         var nativeOutput: Bitmap? = null
-        var finalOutput: Bitmap? = null
         try {
             if (source.config == Bitmap.Config.HARDWARE) {
                 working = source.copy(Bitmap.Config.ARGB_8888, false)
@@ -262,21 +261,19 @@ class QnnVideoFrameUpscaler(
                 ?: throw IllegalStateException("the native output bitmap was not created")
             val wantedW = targetWidth.toInt()
             val wantedH = targetHeight.toInt()
-            finalOutput = if (native.width == wantedW && native.height == wantedH) {
+            val result = if (native.width == wantedW && native.height == wantedH) {
                 native
             } else {
                 Bitmap.createScaledBitmap(native, wantedW, wantedH, true).also {
-                    if (it !== native) {
-                        native.recycle()
-                        nativeOutput = null
-                    }
+                    if (it !== native) native.recycle()
                 }
             }
-            return finalOutput.also { finalOutput = null }
+            // Transfer ownership to the caller; finally must not recycle it.
+            nativeOutput = null
+            return result
         } finally {
             if (ownsWorking && !working.isRecycled) working.recycle()
-            nativeOutput?.takeIf { it !== finalOutput && !it.isRecycled }?.recycle()
-            finalOutput?.takeIf { !it.isRecycled }?.recycle()
+            nativeOutput?.takeIf { !it.isRecycled }?.recycle()
         }
     }
 

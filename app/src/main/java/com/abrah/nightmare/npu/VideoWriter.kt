@@ -309,6 +309,11 @@ object VideoWriter {
             }
             codec.signalEndOfInputStream()
             drain(true)
+            if (presentationTimeUsAt != null) {
+                check(outFrame == count.toLong()) {
+                    "timestamp-preserving encode produced $outFrame of $count frames"
+                }
+            }
             finished = true
         } catch (e: Exception) {
             // A codec the watchdog released throws from wherever this thread was inside it.

@@ -480,6 +480,7 @@
     <string name="lora_delete_body">It is removed from this phone. Any node that names it refuses to run until you add it again or untick it.</string>
     <string name="results_cd_remove_favourite">remove from favourites</string>
     <string name="results_cd_upscale_picture">upscale this picture</string>
+    <string name="results_cd_upscale_video">upscale this video</string>
     <string name="results_empty">Nothing kept yet.\n\nRun something and press the star or the disk. The graph that made it is kept too, so you can reopen the whole flow later instead of just looking at the picture.</string>
     <string name="results_upscaling_notice">Upscaling with %1$s… it appears here as a new result.</string>
     <string name="results_favourites">Favourites</string>

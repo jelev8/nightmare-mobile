@@ -293,13 +293,20 @@ class VideoFrameDecoder(
                     val inputBuffer = decoder.getInputBuffer(inputIndex)
                         ?: throw IllegalStateException("video decoder returned no input buffer")
                     inputBuffer.clear()
-                    val size = extractor.readSampleData(inputBuffer, 0)
-                    if (size < 0) {
+                    val sampleSize = extractor.sampleSize
+                    if (sampleSize < 0L) {
                         decoder.queueInputBuffer(
                             inputIndex, 0, 0, 0L, MediaCodec.BUFFER_FLAG_END_OF_STREAM,
                         )
                         inputEnded = true
                     } else {
+                        check(sampleSize <= inputBuffer.capacity().toLong()) {
+                            "compressed video sample ($sampleSize bytes) exceeds decoder input buffer (${inputBuffer.capacity()} bytes)"
+                        }
+                        val size = extractor.readSampleData(inputBuffer, 0)
+                        check(size > 0 && size.toLong() == sampleSize) {
+                            "could not read the complete compressed video sample"
+                        }
                         val pts = extractor.sampleTime
                         check(pts >= 0L) { "decoder input sample has no presentation timestamp" }
                         decoder.queueInputBuffer(inputIndex, 0, size, pts, 0)

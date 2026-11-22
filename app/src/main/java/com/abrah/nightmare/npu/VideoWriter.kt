@@ -131,6 +131,8 @@ object VideoWriter {
         colorStandard: Int? = null,
         colorTransfer: Int? = null,
         colorRange: Int? = null,
+        /** Supplies the encoder's watchdog heartbeat to long-running frame producers. */
+        onHeartbeatReady: (((() -> Unit)) -> Unit)? = null,
         frameAt: (Int) -> Bitmap,
     ): File {
         require(count > 0) { "no frames to write" }
@@ -141,12 +143,12 @@ object VideoWriter {
         require(w % 2 == 0 && h % 2 == 0) { "odd frame size ${w}x$h" }
         val software = softwareAvcEncoder()
         try {
-            return encodeOnce(null, count, w, h, fps, out, log, isCancelled, presentationTimeUsAt, orientationDegrees, colorStandard, colorTransfer, colorRange, frameAt)
+            return encodeOnce(null, count, w, h, fps, out, log, isCancelled, presentationTimeUsAt, orientationDegrees, colorStandard, colorTransfer, colorRange, onHeartbeatReady, frameAt)
         } catch (e: EncoderStalled) {
             if (software == null || e.codecName == software) throw e
             log("      ${e.message}. Trying again on the software encoder")
         }
-        return encodeOnce(software, count, w, h, fps, out, log, isCancelled, presentationTimeUsAt, orientationDegrees, colorStandard, colorTransfer, colorRange, frameAt)
+        return encodeOnce(software, count, w, h, fps, out, log, isCancelled, presentationTimeUsAt, orientationDegrees, colorStandard, colorTransfer, colorRange, onHeartbeatReady, frameAt)
     }
 
     /** The platform's software H.264 encoder (`c2.android.avc.encoder` on Android 10+), or null. */
@@ -170,6 +172,7 @@ object VideoWriter {
         colorStandard: Int?,
         colorTransfer: Int?,
         colorRange: Int?,
+        onHeartbeatReady: (((() -> Unit)) -> Unit)?,
         frameAt: (Int) -> Bitmap,
     ): File {
         // Encode to a temp file first. MediaMuxer needs a seekable FileDescriptor, and a
@@ -228,6 +231,8 @@ object VideoWriter {
         // ⭐ Progress = a frame taken or a buffer given back. Read by the loops below AND by the
         // watchdog, which is the only thing that can end a `lockCanvas` blocked on a stalled encoder.
         val progressAt = AtomicLong(System.currentTimeMillis())
+        val heartbeat: () -> Unit = { progressAt.set(System.currentTimeMillis()) }
+        onHeartbeatReady?.invoke(heartbeat)
         val stop = AtomicReference<String?>(null)
         fun reason(): String? {
             stop.get()?.let { return it }

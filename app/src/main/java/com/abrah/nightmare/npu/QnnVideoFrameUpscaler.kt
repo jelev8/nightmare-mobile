@@ -296,6 +296,69 @@ class QnnVideoFrameUpscaler(
         outputHeight: Int,
         targetWidth: Int,
         targetHeight: Int,
+    ) = QnnUpscaleMemoryBudget.require(
+        context, sourceWidth, sourceHeight, inputWidth, inputHeight,
+        outputWidth, outputHeight, targetWidth, targetHeight,
+    )
+
+    private companion object {
+        const val TILE_SIZE = 192
+        const val OUTPUT_TILE_SIZE = 768
+        const val NATIVE_SCALE = 4
+        const val FLOAT32_QNN_TYPE = 0x0232
+        val INPUT_SHAPE = listOf(1, 3, 192, 192)
+        val OUTPUT_SHAPE = listOf(1, 3, 768, 768)
+        val TENSOR_PATTERN = Regex("""(in|out) ([^:;]+):([0-9,]+):([0-9]+);""")
+    }
+}
+
+/** Memory guard shared by the pre-decode preflight and the per-frame check. */
+internal object QnnUpscaleMemoryBudget {
+    private const val TILE_SIZE = 192
+    private const val OUTPUT_TILE_SIZE = 768
+    private const val NATIVE_SCALE = 4
+    private const val RESERVE_BYTES = 64L * 1024L * 1024L
+
+    /** Run before creating a decoder, encoder, QNN context or output bitmap. */
+    fun preflight(context: Context, width: Int, height: Int, scale: Int) {
+        require(width > 0 && height > 0) { "invalid source frame dimensions" }
+        require(scale in 2..4) { "video upscale scale must be 2x, 3x or 4x" }
+        val shortEdge = minOf(width, height)
+        val factor = if (shortEdge < TILE_SIZE) TILE_SIZE.toFloat() / shortEdge else 1f
+        val inputWidth = if (factor == 1f) width else maxOf(TILE_SIZE, (width * factor).toInt())
+        val inputHeight = if (factor == 1f) height else maxOf(TILE_SIZE, (height * factor).toInt())
+        val outputWidth = inputWidth.toLong() * NATIVE_SCALE
+        val outputHeight = inputHeight.toLong() * NATIVE_SCALE
+        val targetWidth = width.toLong() * scale
+        val targetHeight = height.toLong() * scale
+        require(outputWidth <= Int.MAX_VALUE && outputHeight <= Int.MAX_VALUE &&
+            outputWidth * outputHeight <= Int.MAX_VALUE &&
+            targetWidth <= Int.MAX_VALUE && targetHeight <= Int.MAX_VALUE
+        ) { "the requested video frame dimensions are too large" }
+        require(outputWidth % 2L == 0L && outputHeight % 2L == 0L) {
+            "the native upscaled frame dimensions must be even"
+        }
+        require(targetWidth % 2L == 0L && targetHeight % 2L == 0L) {
+            "the requested video output dimensions must be even"
+        }
+        require(
+            context,
+            width, height, inputWidth, inputHeight,
+            outputWidth.toInt(), outputHeight.toInt(),
+            targetWidth.toInt(), targetHeight.toInt(),
+        )
+    }
+
+    fun require(
+        context: Context,
+        sourceWidth: Int,
+        sourceHeight: Int,
+        inputWidth: Int,
+        inputHeight: Int,
+        outputWidth: Int,
+        outputHeight: Int,
+        targetWidth: Int,
+        targetHeight: Int,
     ) {
         val nativeOutputBytes = outputWidth.toLong() * outputHeight * 4L
         val targetBytes = if (targetWidth == outputWidth && targetHeight == outputHeight) 0L
@@ -326,17 +389,6 @@ class QnnVideoFrameUpscaler(
                     "Use a smaller source video or close other apps and retry"
             )
         }
-    }
-
-    private companion object {
-        const val TILE_SIZE = 192
-        const val OUTPUT_TILE_SIZE = 768
-        const val NATIVE_SCALE = 4
-        const val FLOAT32_QNN_TYPE = 0x0232
-        const val RESERVE_BYTES = 64L * 1024L * 1024L
-        val INPUT_SHAPE = listOf(1, 3, 192, 192)
-        val OUTPUT_SHAPE = listOf(1, 3, 768, 768)
-        val TENSOR_PATTERN = Regex("""(in|out) ([^:;]+):([0-9,]+):([0-9]+);""")
     }
 }
 

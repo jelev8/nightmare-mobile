@@ -429,7 +429,7 @@ class ResultsStore(private val dir: File) {
                     .put("favourite", false)
                     .put("auto", false)
                     .put("times", JSONObject())
-                    .put("flow", workflow.toJson(types))
+                    .apply { workflow?.let { put("flow", it.toJson(types)) } }
                     .put("derivedFrom", sourceId)
                     .put("upscalerId", upscalerId)
                     .put("upscaleFactor", scale)

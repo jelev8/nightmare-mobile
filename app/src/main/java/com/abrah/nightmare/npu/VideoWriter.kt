@@ -205,9 +205,10 @@ object VideoWriter {
             surface = codec.createInputSurface()
             codec.start()
             log("      encoder $encoderName")
-            createdMuxer = MediaMuxer(tmp.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
-            if (orientationDegrees != 0) createdMuxer.setOrientationHint(orientationDegrees)
-            createdMuxer
+            val newMuxer = MediaMuxer(tmp.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+            createdMuxer = newMuxer
+            if (orientationDegrees != 0) newMuxer.setOrientationHint(orientationDegrees)
+            newMuxer
         } catch (e: Exception) {
             runCatching { createdMuxer?.release() }
             runCatching { codec.stop() }

@@ -25,6 +25,7 @@ import kotlin.math.roundToInt
 data class VideoUpscaleSource(
     val file: File,
     val videoTrack: Int,
+    val decoderName: String,
     val audioTrack: Int?,
     val audioBytes: Long,
     val videoFormat: MediaFormat,
@@ -211,6 +212,7 @@ object VideoUpscaleInspector {
             return VideoUpscaleSource(
                 file = file,
                 videoTrack = videoTrack,
+                decoderName = decoderName,
                 audioTrack = audioTrack,
                 audioBytes = audioScan?.totalBytes ?: 0L,
                 videoFormat = format,

@@ -97,3 +97,22 @@ The initial implementation reuses model files that Nightmare already downloads a
 - The `amd/realesrgan-x4plus-anime-6b` Hugging Face model card identifies the original Real-ESRGAN anime checkpoint as BSD-3-Clause and attributes it to Xintao Wang / the Real-ESRGAN authors. This is useful supporting evidence for the source weights, but does not itself state the licence of xororz's QNN-converted `.bin` files. The user's direct upstream licensing email remains the stronger confirmation route.
 - The exact source checkpoint `Kim2091/UltraSharpV2/4x-UltraSharpV2_Lite.pth` is tagged `cc-by-nc-sa-4.0` on Hugging Face. Therefore the built-in `upscaler_realistic` cannot be treated as BSD-3-Clause. Its corresponding QNN-converted binary is hosted under `xororz/upscaler`, whose visible repository tree contains the model folders and `.gitattributes` but no model card or explicit licence file. Do not assume the converted binary has a separate permissive licence; retain provenance and treat the upstream model's CC BY-NC-SA terms as the conservative baseline until the publisher clarifies the converted artifact's terms.
 - The `xororz/upscaler` file listing does not itself declare a licence for either QNN binary. Reusing an already installed binary without bundling or redistributing it keeps our implementation away from copying model files, but it does not erase the model's use conditions. Before any public release, preserve attribution and review the NC/SA obligations against the app's actual distribution and use; do not claim blanket commercial rights for either built-in model.
+
+
+## Read-only QNN compatibility probe
+
+A headless harness op, `upscaler_qnn_probe`, now checks each installed built-in
+upscaler using the existing `UpscalerCatalog.pathFor` resolver and in-process
+`QnnRunner`. It acquires the app-wide `RunLock`, runs on `Dispatchers.IO`,
+checks the actual loaded graph's single input/output, expected NCHW dimensions
+(1×3×192×192 → 1×3×768×768), and float32 tensor types, then executes one
+zero-filled synthetic tile and verifies output length and finiteness. It does
+not download, rewrite, copy, or delete model files, and releases all QNN handles
+in `finally`. A model is skipped if it is not installed; failures are reported
+per model so the other built-in can still be checked.
+
+This is a plumbing/compatibility probe, not an image-quality test. A PASS proves
+that the installed context loads and executes through this wrapper on the
+device; it does not yet validate RGB preprocessing, tile blending, visual
+quality, sustained thermals, or video/audio handling. Do not start video-pipeline
+implementation until this probe has been built and run on the target device.

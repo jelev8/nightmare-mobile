@@ -833,6 +833,95 @@ Java_com_abrah_nightmare_npu_NativeQnn_execute(JNIEnv* env, jclass, jlong h,
   return res;
 }
 
+/**
+ * Execute into caller-owned FloatArrays. The video tile loop reuses these
+ * buffers instead of allocating a 6.75 MiB Java output array for every tile.
+ */
+JNIEXPORT jboolean JNICALL
+Java_com_abrah_nightmare_npu_NativeQnn_executeInto(JNIEnv* env, jclass, jlong h,
+                                                   jobjectArray jNames,
+                                                   jobjectArray jData,
+                                                   jobjectArray jOutputs) {
+  std::lock_guard<std::mutex> lk(g_mu);
+  auto* m = (Model*)(intptr_t)h;
+  if (!m) { fail("null model handle"); return JNI_FALSE; }
+
+  const jsize nGiven = env->GetArrayLength(jNames);
+  if (env->GetArrayLength(jData) != nGiven ||
+      (size_t)nGiven != m->inputs.size()) {
+    fail("wrong number of named graph inputs");
+    return JNI_FALSE;
+  }
+  if ((size_t)env->GetArrayLength(jOutputs) != m->outputs.size()) {
+    fail("wrong number of reusable graph output buffers");
+    return JNI_FALSE;
+  }
+
+  std::vector<bool> seen(m->inputs.size(), false);
+  for (jsize i = 0; i < nGiven; ++i) {
+    auto jn = (jstring)env->GetObjectArrayElement(jNames, i);
+    if (!jn) { fail("null graph input name"); return JNI_FALSE; }
+    const char* nm = env->GetStringUTFChars(jn, nullptr);
+    if (!nm) { env->DeleteLocalRef(jn); return JNI_FALSE; }
+    std::string name(nm);
+    env->ReleaseStringUTFChars(jn, nm);
+    env->DeleteLocalRef(jn);
+
+    int slot = -1;
+    for (size_t k = 0; k < m->inputs.size(); ++k) {
+      if (name == tName(m->inputs[k])) { slot = (int)k; break; }
+    }
+    if (slot < 0) { fail("no graph input named " + name); return JNI_FALSE; }
+    if (seen[slot]) { fail("graph input " + name + " given twice"); return JNI_FALSE; }
+    seen[slot] = true;
+
+    auto arr = (jfloatArray)env->GetObjectArrayElement(jData, i);
+    if (!arr) { fail("null data for graph input " + name); return JNI_FALSE; }
+    const size_t want = numElems(m->inputs[slot]);
+    const size_t got = (size_t)env->GetArrayLength(arr);
+    if (got != want) {
+      env->DeleteLocalRef(arr);
+      fail(name + ": expected " + std::to_string(want) + " floats, got " +
+           std::to_string(got));
+      return JNI_FALSE;
+    }
+    jfloat* src = env->GetFloatArrayElements(arr, nullptr);
+    if (!src) { env->DeleteLocalRef(arr); return JNI_FALSE; }
+    const bool ok = writeTensor(m->inputs[slot], m->inBuf[slot].data(), src, want);
+    env->ReleaseFloatArrayElements(arr, src, JNI_ABORT);
+    env->DeleteLocalRef(arr);
+    if (!ok) return JNI_FALSE;
+  }
+
+  Qnn_ErrorHandle_t e = g_be.qnn.graphExecute(
+      m->graph, m->inputs.data(), (uint32_t)m->inputs.size(), m->outputs.data(),
+      (uint32_t)m->outputs.size(), nullptr, nullptr);
+  if (e != QNN_SUCCESS) {
+    fail("graphExecute failed: " + std::to_string((long long)e));
+    return JNI_FALSE;
+  }
+
+  for (size_t i = 0; i < m->outputs.size(); ++i) {
+    auto arr = (jfloatArray)env->GetObjectArrayElement(jOutputs, (jsize)i);
+    if (!arr) { fail("null reusable output buffer"); return JNI_FALSE; }
+    const size_t want = numElems(m->outputs[i]);
+    const size_t got = (size_t)env->GetArrayLength(arr);
+    if (got != want) {
+      env->DeleteLocalRef(arr);
+      fail(std::string("output ") + tName(m->outputs[i]) + ": expected " +
+           std::to_string(want) + " floats, got " + std::to_string(got));
+      return JNI_FALSE;
+    }
+    jfloat* dst = env->GetFloatArrayElements(arr, nullptr);
+    if (!dst) { env->DeleteLocalRef(arr); return JNI_FALSE; }
+    const bool ok = readTensor(m->outputs[i], m->outBuf[i].data(), dst, want);
+    env->ReleaseFloatArrayElements(arr, dst, ok ? 0 : JNI_ABORT);
+    env->DeleteLocalRef(arr);
+    if (!ok) return JNI_FALSE;
+  }
+  return JNI_TRUE;
+}
+
 /** Output names in the order execute() returns them. */
 JNIEXPORT jobjectArray JNICALL
 Java_com_abrah_nightmare_npu_NativeQnn_outputNames(JNIEnv* env, jclass, jlong h) {

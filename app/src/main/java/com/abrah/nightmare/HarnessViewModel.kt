@@ -2503,7 +2503,9 @@ class HarnessViewModel(app: Application) : AndroidViewModel(app) {
             }
             try {
                 withContext(Dispatchers.IO) {
-                    val source = com.abrah.nightmare.npu.VideoUpscaleInspector.inspect(sourceVideo)
+                    val source = com.abrah.nightmare.npu.VideoUpscaleInspector.inspect(sourceVideo) {
+                        job?.isActive != true
+                    }
                     val sourceFlow = results.flow(id)?.workflow
                         ?: throw IllegalStateException("the source result's original workflow is missing")
                     val runner = com.abrah.nightmare.npu.QnnRunner(app)

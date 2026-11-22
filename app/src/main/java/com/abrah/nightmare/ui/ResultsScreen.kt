@@ -571,7 +571,7 @@ fun ResultsScreen(
                     if (no != null) onToast(no) else upscalingPick = shown
                 }, modifier = small) {
                     Icon(
-                        UpscaleIcon, contentDescription = stringResource(if (shown.videoPath != null && onUpscaleVideo != null) R.string.results_cd_upscale_video else R.string.results_cd_upscale_picture),
+                        UpscaleIcon, contentDescription = stringResource(if (shown.videoPath != null) R.string.results_cd_upscale_video else R.string.results_cd_upscale_picture),
                         tint = onSurface.copy(alpha = if (upscaling == null) 1f else 0.38f),
                     )
                 }
@@ -1176,7 +1176,7 @@ fun ResultViewer(
                     Icon(
                         UpscaleIcon,
                         contentDescription = stringResource(
-                            if (current.videoPath != null && onUpscaleVideo != null)
+                            if (current.videoPath != null)
                                 R.string.results_cd_upscale_video else R.string.results_cd_upscale_picture
                         ),
                         tint = androidx.compose.ui.graphics.Color.White
@@ -1584,7 +1584,8 @@ private var upscaleScale by androidx.compose.runtime.mutableIntStateOf(com.abrah
  * three copies that stop agreeing (`CLAUDE.md`).
  *
  * ⚠ It REFUSES BY NAME rather than hiding the button (the user's call,
- * 2026-09-17): a control that vanishes on a clip teaches nothing.
+ * 2026-09-17). Video clips are allowed only when the caller supplies the
+ * separate in-process QNN video callback.
  */
 fun upscaleRefusal(
     context: android.content.Context,

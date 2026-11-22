@@ -131,6 +131,7 @@ object VideoWriter {
         colorStandard: Int? = null,
         colorTransfer: Int? = null,
         colorRange: Int? = null,
+        bitRateOverride: Int? = null,
         /** Supplies the encoder's watchdog heartbeat to long-running frame producers. */
         onHeartbeatReady: ((() -> Unit) -> Unit)? = null,
         frameAt: (Int) -> Bitmap,
@@ -143,12 +144,12 @@ object VideoWriter {
         require(w % 2 == 0 && h % 2 == 0) { "odd frame size ${w}x$h" }
         val software = softwareAvcEncoder()
         try {
-            return encodeOnce(null, count, w, h, fps, out, log, isCancelled, presentationTimeUsAt, orientationDegrees, colorStandard, colorTransfer, colorRange, onHeartbeatReady, frameAt)
+            return encodeOnce(null, count, w, h, fps, out, log, isCancelled, presentationTimeUsAt, orientationDegrees, colorStandard, colorTransfer, colorRange, bitRateOverride, onHeartbeatReady, frameAt)
         } catch (e: EncoderStalled) {
             if (software == null || e.codecName == software) throw e
             log("      ${e.message}. Trying again on the software encoder")
         }
-        return encodeOnce(software, count, w, h, fps, out, log, isCancelled, presentationTimeUsAt, orientationDegrees, colorStandard, colorTransfer, colorRange, onHeartbeatReady, frameAt)
+        return encodeOnce(software, count, w, h, fps, out, log, isCancelled, presentationTimeUsAt, orientationDegrees, colorStandard, colorTransfer, colorRange, bitRateOverride, onHeartbeatReady, frameAt)
     }
 
     /** The platform's software H.264 encoder (`c2.android.avc.encoder` on Android 10+), or null. */
@@ -172,6 +173,7 @@ object VideoWriter {
         colorStandard: Int?,
         colorTransfer: Int?,
         colorRange: Int?,
+        bitRateOverride: Int?,
         onHeartbeatReady: ((() -> Unit) -> Unit)?,
         frameAt: (Int) -> Bitmap,
     ): File {
@@ -181,10 +183,11 @@ object VideoWriter {
         if (tmp.exists()) tmp.delete()
         tmp.parentFile?.mkdirs()
 
+        require(bitRateOverride == null || bitRateOverride > 0) { "invalid video encoder bitrate override" }
         val fmt = MediaFormat.createVideoFormat(MIME, w, h).apply {
             setInteger(MediaFormat.KEY_COLOR_FORMAT,
                        MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
-            setInteger(MediaFormat.KEY_BIT_RATE, bitRate(w, h, fps))
+            setInteger(MediaFormat.KEY_BIT_RATE, bitRateOverride ?: bitRate(w, h, fps))
             setInteger(MediaFormat.KEY_FRAME_RATE, fps)
             setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, I_FRAME_INTERVAL)
             // VFR source timestamps are assigned in muxer order below. Disable

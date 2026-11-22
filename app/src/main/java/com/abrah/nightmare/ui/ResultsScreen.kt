@@ -685,7 +685,9 @@ fun ResultsScreen(
     ultrafixing?.let { r -> UltraFixFor(r, onUltraFix) { ultrafixing = null } }
     upscalingPick?.let { r ->
         UpscalePicker(
-            upscalers = upscalers,
+            upscalers = if (r.videoPath != null) upscalers.filter {
+                it.spec.id == "upscaler_anime" || it.spec.id == "upscaler_realistic"
+            } else upscalers,
             onUltraFix = onUltraFix?.takeIf { r.videoPath == null }?.let { { upscalingPick = null; ultrafixing = r } },
             onPick = { id, scale ->
                 upscalingPick = null
@@ -1238,7 +1240,9 @@ fun ResultViewer(
         ultrafixing?.let { r -> UltraFixFor(r, onUltraFix) { ultrafixing = null } }
         upscalingPick?.let { r ->
             UpscalePicker(
-                upscalers = upscalers,
+                upscalers = if (r.videoPath != null) upscalers.filter {
+                    it.spec.id == "upscaler_anime" || it.spec.id == "upscaler_realistic"
+                } else upscalers,
                 onUltraFix = onUltraFix?.takeIf { r.videoPath == null }?.let { { upscalingPick = null; ultrafixing = r } },
                 onPick = { id, scale ->
                     upscalingPick = null

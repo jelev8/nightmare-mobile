@@ -29,6 +29,9 @@ data class VideoUpscaleSource(
     val codedHeight: Int,
     val crop: Rect,
     val rotationDegrees: Int,
+    val colorStandard: Int?,
+    val colorTransfer: Int?,
+    val colorRange: Int?,
     val fps: Int,
     val framePtsUs: LongArray,
     val timelineOriginUs: Long,
@@ -76,6 +79,16 @@ object VideoUpscaleInspector {
                 throw IllegalArgumentException("HDR metadata is present; only SDR video is supported")
             }
             val standard = format.intOrNull(MediaFormat.KEY_COLOR_STANDARD)
+            val bitDepth = if (format.containsKey("bit-depth")) format.getInteger("bit-depth") else null
+            if (bitDepth != null && bitDepth > 8) {
+                throw IllegalArgumentException("only 8-bit SDR video is supported")
+            }
+            if (format.containsKey("hdr10-plus-info") || format.containsKey("hdr-st2094-40-info")) {
+                throw IllegalArgumentException("HDR dynamic metadata is present; only SDR video is supported")
+            }
+            if (format.getString(MediaFormat.KEY_MIME) == "video/dolby-vision") {
+                throw IllegalArgumentException("Dolby Vision video is not supported yet")
+            }
             if (standard == MediaFormat.COLOR_STANDARD_BT2020) {
                 throw IllegalArgumentException("BT.2020 video is not supported yet; use SDR BT.601/BT.709")
             }
@@ -142,6 +155,9 @@ object VideoUpscaleInspector {
                 codedHeight = codedHeight,
                 crop = crop,
                 rotationDegrees = rotation,
+                colorStandard = standard,
+                colorTransfer = transfer,
+                colorRange = format.intOrNull(MediaFormat.KEY_COLOR_RANGE),
                 fps = fps,
                 framePtsUs = pts.toLongArray(),
                 timelineOriginUs = origin,
@@ -302,8 +318,10 @@ class VideoFrameDecoder(
         val pixelStride = plane.pixelStride
         val rowStride = plane.rowStride
         check(pixelStride >= 4) { "decoder RGBA pixel stride is too small: $pixelStride" }
-        val crop = Rect(requestedCrop).apply {
-            intersect(image.cropRect)
+        val crop = if (image.width == requestedCrop.width() && image.height == requestedCrop.height()) {
+            Rect(0, 0, image.width, image.height)
+        } else {
+            Rect(requestedCrop).apply { intersect(image.cropRect) }
         }
         check(!crop.isEmpty) { "decoded frame has an empty crop rectangle" }
         val pixels = IntArray(crop.width() * crop.height())

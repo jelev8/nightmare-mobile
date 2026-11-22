@@ -77,6 +77,9 @@ class VideoUpscalePipeline(
                     }
                 },
                 orientationDegrees = source.rotationDegrees,
+                colorStandard = source.colorStandard,
+                colorTransfer = source.colorTransfer,
+                colorRange = source.colorRange,
             ) { index ->
                 if (isCancelled()) throw CancellationException("video upscale cancelled")
                 if (index == 0) {

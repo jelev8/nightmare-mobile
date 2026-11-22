@@ -28,6 +28,7 @@ import java.io.File
 class QnnRunner(private val context: Context) {
 
     private val handles = HashMap<String, Long>()
+    private val outputNameCache = HashMap<String, Array<String>>()
 
     @Volatile
     private var initialised = false
@@ -114,16 +115,25 @@ class QnnRunner(private val context: Context) {
      * Execute a graph using caller-owned output buffers. Unlike [run], this
      * method reuses those arrays across repeated tile executions.
      */
-    fun outputNames(bin: File): Array<String> = NativeQnn.outputNames(handleOf(bin))
+    fun outputNames(bin: File): Array<String> = synchronized(this) {
+        outputNameCache[bin.absolutePath] ?: NativeQnn.outputNames(handleOf(bin)).also {
+            outputNameCache[bin.absolutePath] = it
+        }
+    }
 
     fun runInto(
         bin: File,
         inputNames: Array<String>,
         inputData: Array<FloatArray>,
+        outputTensorNames: Array<String>,
         outputData: Array<FloatArray>,
     ) {
         check(inputNames.size == inputData.size) { "QNN input names/data count mismatch" }
         val handle = handleOf(bin)
+        val expectedOutputs = outputNames(bin)
+        check(outputTensorNames.contentEquals(expectedOutputs) &&
+            outputData.size == expectedOutputs.size
+        ) { "${bin.name}: reusable output buffers do not match the graph's output order" }
         check(NativeQnn.executeInto(handle, inputNames, inputData, outputData)) {
             "${bin.name} execute failed: ${NativeQnn.lastError()}"
         }
@@ -133,6 +143,7 @@ class QnnRunner(private val context: Context) {
     @Synchronized
     fun release(bin: File) {
         handles.remove(bin.absolutePath)?.let { NativeQnn.free(it) }
+        outputNameCache.remove(bin.absolutePath)
         Resident.remove(bin)
     }
 
@@ -141,6 +152,7 @@ class QnnRunner(private val context: Context) {
         handles.values.forEach { NativeQnn.free(it) }
         handles.keys.forEach { Resident.remove(File(it)) }
         handles.clear()
+        outputNameCache.clear()
     }
 
     /**

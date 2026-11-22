@@ -69,7 +69,7 @@ jobs:
             "cmake;4.1.2"
             "ndk;29.0.14206865"
           )
-          "$SDKMANAGER" --install "${PACKAGES[@]}" || "$SDKMANAGER" --channel=3 --install "${PACKAGES[@]}"
+          "$SDKMANAGER" "${PACKAGES[@]}" || "$SDKMANAGER" --channel=3 "${PACKAGES[@]}"
           test -d "$ANDROID_HOME/ndk/29.0.14206865"
 
       - name: Fetch licensed QAIRT 2.49 headers
@@ -104,16 +104,21 @@ jobs:
         run: |
           set -euo pipefail
           cd source
-          pwsh -NoLogo -NoProfile -File tools/fetch_quickjs.ps1
+          TEMP="$RUNNER_TEMP" pwsh -NoLogo -NoProfile -File tools/fetch_quickjs.ps1
 
       - name: Build pinned Foxlet dependency
         shell: bash
         run: |
           set -euo pipefail
           cd source
+          if ! command -v python >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y python-is-python3
+          fi
+          python --version
           FOXLET_DIR="$RUNNER_TEMP/foxlet-translate" bash tools/build_foxlet.sh
 
-      - name: Run focused tests and build side-by-side APK
+      - name: Run JVM unit tests and build side-by-side APK
         shell: bash
         run: |
           set -euo pipefail

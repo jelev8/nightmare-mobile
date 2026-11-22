@@ -862,7 +862,7 @@ Java_com_abrah_nightmare_npu_NativeQnn_executeInto(JNIEnv* env, jclass, jlong h,
     auto jn = (jstring)env->GetObjectArrayElement(jNames, i);
     if (!jn) { fail("null graph input name"); return JNI_FALSE; }
     const char* nm = env->GetStringUTFChars(jn, nullptr);
-    if (!nm) { env->DeleteLocalRef(jn); return JNI_FALSE; }
+    if (!nm) { env->DeleteLocalRef(jn); fail("could not read graph input name"); return JNI_FALSE; }
     std::string name(nm);
     env->ReleaseStringUTFChars(jn, nm);
     env->DeleteLocalRef(jn);
@@ -886,7 +886,7 @@ Java_com_abrah_nightmare_npu_NativeQnn_executeInto(JNIEnv* env, jclass, jlong h,
       return JNI_FALSE;
     }
     jfloat* src = env->GetFloatArrayElements(arr, nullptr);
-    if (!src) { env->DeleteLocalRef(arr); return JNI_FALSE; }
+    if (!src) { env->DeleteLocalRef(arr); fail("could not access graph input array"); return JNI_FALSE; }
     const bool ok = writeTensor(m->inputs[slot], m->inBuf[slot].data(), src, want);
     env->ReleaseFloatArrayElements(arr, src, JNI_ABORT);
     env->DeleteLocalRef(arr);
@@ -913,7 +913,7 @@ Java_com_abrah_nightmare_npu_NativeQnn_executeInto(JNIEnv* env, jclass, jlong h,
       return JNI_FALSE;
     }
     jfloat* dst = env->GetFloatArrayElements(arr, nullptr);
-    if (!dst) { env->DeleteLocalRef(arr); return JNI_FALSE; }
+    if (!dst) { env->DeleteLocalRef(arr); fail("could not access reusable graph output array"); return JNI_FALSE; }
     const bool ok = readTensor(m->outputs[i], m->outBuf[i].data(), dst, want);
     env->ReleaseFloatArrayElements(arr, dst, ok ? 0 : JNI_ABORT);
     env->DeleteLocalRef(arr);

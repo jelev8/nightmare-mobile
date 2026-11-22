@@ -176,6 +176,8 @@ fun ResultsScreen(
     logFor: (Result) -> String? = { null },
     /** ⭐ Upscale with an installed upscaler; the enlarged picture becomes a new item. */
     onUpscale: (Result, String, Int) -> Unit = { _, _, _ -> },
+    /** ⭐ Video clips use the separate in-process QNN pipeline, never the image workflow. */
+    onUpscaleVideo: ((Result, String, Int) -> Unit)? = null,
     /** ⭐ UltraFix ([com.abrah.nightmare.UltraFix]) from the same chooser; null hides it. */
     onUltraFix: ((Result, com.abrah.nightmare.UltraFix.Params) -> Unit)? = null,
     /** ⭐ Edit face on a kept picture ([com.abrah.nightmare.canvas.FaceEditSheet]), after Upscale in both rows. */
@@ -565,11 +567,11 @@ fun ResultsScreen(
                 // ⚠ Always SHOWN, refusing by name (the user's call, 2026-09-17):
                 // a button that vanishes on a clip teaches nothing.
                 IconButton(onClick = {
-                    val no = upscaleRefusal(context, shown.width, shown.height, shown.videoPath != null, upscaling)
+                    val no = upscaleRefusal(context, shown.width, shown.height, shown.videoPath != null, upscaling, onUpscaleVideo != null)
                     if (no != null) onToast(no) else upscalingPick = shown
                 }, modifier = small) {
                     Icon(
-                        UpscaleIcon, contentDescription = stringResource(R.string.results_cd_upscale_picture),
+                        UpscaleIcon, contentDescription = stringResource(if (shown.videoPath != null && onUpscaleVideo != null) R.string.results_cd_upscale_video else R.string.results_cd_upscale_picture),
                         tint = onSurface.copy(alpha = if (upscaling == null) 1f else 0.38f),
                     )
                 }
@@ -684,10 +686,13 @@ fun ResultsScreen(
     upscalingPick?.let { r ->
         UpscalePicker(
             upscalers = upscalers,
-            onUltraFix = onUltraFix?.let { { upscalingPick = null; ultrafixing = r } },
-            onPick = { id, scale -> upscalingPick = null; onUpscale(r, id, scale) },
-            width = r.width,
-            height = r.height,
+            onUltraFix = onUltraFix?.takeIf { r.videoPath == null }?.let { { upscalingPick = null; ultrafixing = r } },
+            onPick = { id, scale ->
+                upscalingPick = null
+                if (r.videoPath != null) onUpscaleVideo?.invoke(r, id, scale) else onUpscale(r, id, scale)
+            },
+            width = r.width.takeIf { r.videoPath == null },
+            height = r.height.takeIf { r.videoPath == null },
             onInstall = onInstallUpscaler,
             onDismiss = { upscalingPick = null },
         )
@@ -830,6 +835,8 @@ fun ResultViewer(
     upscalers: List<UpscalerRow> = emptyList(),
     upscaling: String? = null,
     onUpscale: ((Result, String, Int) -> Unit)? = null,
+    /** ⭐ Video clips use the separate in-process QNN pipeline. */
+    onUpscaleVideo: ((Result, String, Int) -> Unit)? = null,
     onInstallUpscaler: (com.abrah.nightmare.UpscalerSpec) -> Unit = {},
     onToast: (String) -> Unit = {},
     onUltraFix: ((Result, com.abrah.nightmare.UltraFix.Params) -> Unit)? = null,
@@ -1156,16 +1163,20 @@ fun ResultViewer(
             // ⚠ Before info, matching the Results row's order exactly
             // (`docs/UI.md` §8.11): delete · star · download · share · send ·
             // upscale · info · Open.
-            onUpscale?.let {
+            if (onUpscale != null || onUpscaleVideo != null) {
                 IconButton(onClick = {
                     val no = upscaleRefusal(
-                        context, current.width, current.height, current.videoPath != null, upscaling,
+                        context, current.width, current.height, current.videoPath != null,
+                        upscaling, onUpscaleVideo != null,
                     )
                     if (no != null) onToast(no) else upscalingPick = current
                 }, modifier = viewerIcon) {
                     Icon(
                         UpscaleIcon,
-                        contentDescription = stringResource(R.string.results_cd_upscale_picture),
+                        contentDescription = stringResource(
+                            if (current.videoPath != null && onUpscaleVideo != null)
+                                R.string.results_cd_upscale_video else R.string.results_cd_upscale_picture
+                        ),
                         tint = androidx.compose.ui.graphics.Color.White
                             .copy(alpha = if (upscaling == null) 1f else 0.38f),
                     )
@@ -1228,10 +1239,13 @@ fun ResultViewer(
         upscalingPick?.let { r ->
             UpscalePicker(
                 upscalers = upscalers,
-                onUltraFix = onUltraFix?.let { { upscalingPick = null; ultrafixing = r } },
-                onPick = { id, scale -> upscalingPick = null; onUpscale?.invoke(r, id, scale) },
-                width = r.width,
-                height = r.height,
+                onUltraFix = onUltraFix?.takeIf { r.videoPath == null }?.let { { upscalingPick = null; ultrafixing = r } },
+                onPick = { id, scale ->
+                    upscalingPick = null
+                    if (r.videoPath != null) onUpscaleVideo?.invoke(r, id, scale) else onUpscale?.invoke(r, id, scale)
+                },
+                width = r.width.takeIf { r.videoPath == null },
+                height = r.height.takeIf { r.videoPath == null },
                 onInstall = onInstallUpscaler,
                 onDismiss = { upscalingPick = null },
             )
@@ -1574,9 +1588,10 @@ fun upscaleRefusal(
     height: Int,
     isClip: Boolean,
     busyWith: String?,
+    canUpscaleClip: Boolean = false,
 ): String? = when {
     busyWith != null -> context.getString(R.string.upscale_already_running, busyWith)
-    isClip -> context.getString(R.string.upscale_pictures_only)
+    isClip && !canUpscaleClip -> context.getString(R.string.upscale_pictures_only)
     // ⚠ NOT refused when no scale fits [UpscaleNode.MAX_OUT_EDGE] any more: the chooser dims
     // every scale and Use, and still offers UltraFix — the job a picture that large is for.
     else -> null

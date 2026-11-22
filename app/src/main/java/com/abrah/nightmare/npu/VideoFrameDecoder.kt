@@ -79,9 +79,7 @@ object VideoUpscaleInspector {
             require(codedWidth > 0 && codedHeight > 0) { "invalid source video dimensions" }
 
             val transfer = format.intOrNull(MediaFormat.KEY_COLOR_TRANSFER)
-            if (transfer != null && transfer != 0 &&
-                transfer != MediaFormat.COLOR_TRANSFER_SDR_VIDEO
-            ) {
+            if (transfer != null && transfer !in setOf(0, 2, MediaFormat.COLOR_TRANSFER_SDR_VIDEO)) {
                 throw IllegalArgumentException("HDR or non-SDR video is not supported yet")
             }
             if (format.containsKey(MediaFormat.KEY_HDR_STATIC_INFO)) {
@@ -92,7 +90,7 @@ object VideoUpscaleInspector {
             if (bitDepth != null && bitDepth > 8) {
                 throw IllegalArgumentException("only 8-bit SDR video is supported")
             }
-            if (format.containsKey("hdr10-plus-info") || format.containsKey("hdr-st2094-40-info")) {
+            if (format.containsKey("hdr10-plus-info") || format.containsKey("hdr-st2094-50-info")) {
                 throw IllegalArgumentException("HDR dynamic metadata is present; only SDR video is supported")
             }
             if (format.getString(MediaFormat.KEY_MIME) == "video/dolby-vision") {

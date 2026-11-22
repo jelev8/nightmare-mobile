@@ -202,6 +202,41 @@ class ResultsStoreTest {
     }
 
     @Test
+    fun cancelledUpscaledVideoCopyRollsBackPosterAndTemporaryFiles() {
+        val dir = tmp.newFolder()
+        val s = ResultsStore(dir)
+        val original = tmp.newFile("source-cancel.mp4").apply { writeBytes(ByteArray(512) { 1 }) }
+        val source = s.keep(
+            bitmap(), "img_source", defaultWorkflow(), NODE_TYPES, "1", "m", "source",
+            video = original,
+        )
+        val output = tmp.newFile("upscaled-cancel.mp4").apply { writeBytes(ByteArray(2 * 1024 * 1024) { 7 }) }
+        var checks = 0
+        try {
+            s.keepUpscaledVideo(
+                sourceId = source.id,
+                video = output,
+                poster = bitmap(128, 96),
+                workflow = s.flow(source.id)!!.workflow,
+                types = NODE_TYPES,
+                upscalerId = "upscaler_anime",
+                scale = 4,
+                isCancelled = { ++checks >= 3 },
+            )
+            throw AssertionError("cancelled copy must not commit")
+        } catch (expected: kotlinx.coroutines.CancellationException) {
+            assertTrue(expected.message!!.contains("cancelled"))
+        }
+        assertEquals("only the source result remains", 1, s.all().size)
+        assertTrue("no temporary files remain", dir.listFiles().orEmpty().none { it.name.endsWith(".tmp") })
+        assertTrue("no derived MP4 or poster remains", dir.listFiles().orEmpty().none {
+            it.name.endsWith(".mp4") && it.name != source.id + ".mp4" ||
+                it.name.endsWith(".png") && it.name != source.id + ".png"
+        })
+        assertNotNull(s.clipFile(source.id))
+    }
+
+    @Test
     fun failedUpscaledVideoCommitLeavesNoPartialResult() {
         val dir = tmp.newFolder()
         val s = ResultsStore(dir)

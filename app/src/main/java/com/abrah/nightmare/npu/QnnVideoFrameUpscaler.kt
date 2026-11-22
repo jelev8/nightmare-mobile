@@ -32,6 +32,7 @@ class QnnVideoFrameUpscaler(
 
     private val input: Tensor
     private val output: Tensor
+    private val nativeOutputNames: Array<String>
 
     init {
         require(modelFile.isFile && modelFile.length() > 0L) {
@@ -59,8 +60,8 @@ class QnnVideoFrameUpscaler(
         require(input.dataType == FLOAT32_QNN_TYPE && output.dataType == FLOAT32_QNN_TYPE) {
             "expected float32 QNN tensors; got ${input.dataType}/${output.dataType}"
         }
-        val actualOutputNames = runner.outputNames(modelFile)
-        require(actualOutputNames.contentEquals(arrayOf(output.name))) {
+        nativeOutputNames = runner.outputNames(modelFile)
+        require(nativeOutputNames.contentEquals(arrayOf(output.name))) {
             "QNN output-name order does not match the inspected tensor metadata"
         }
     }
@@ -196,7 +197,7 @@ class QnnVideoFrameUpscaler(
                     )
                     pixelsToChw(tilePixels, tileInputBuffer)
 
-                    runner.runInto(modelFile, inputNames, inputData, outputData)
+                    runner.runInto(modelFile, inputNames, inputData, nativeOutputNames, outputData)
                     val tileOutput = tileOutputBuffer
                     check(tileOutput.size == 3 * tilePlane) {
                         "QNN returned ${tileOutput.size} values; expected ${3 * tilePlane}"

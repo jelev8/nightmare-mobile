@@ -252,6 +252,8 @@ private object StrictVideoAudioMuxer {
             var audioSize = read(audio, audioBuffer)
             var audioSamples = 0L
             var videoSamples = 0L
+            var lastVideoPts = -1L
+            var lastAudioPts = -1L
 
             while (videoSize >= 0 || audioSize >= 0) {
                 if (isCancelled()) throw CancellationException("video upscale cancelled")
@@ -260,7 +262,10 @@ private object StrictVideoAudioMuxer {
                 val audioPts = if (audioSize >= 0) audioSourcePts - source.timelineOriginUs else Long.MAX_VALUE
 
                 if (videoSize >= 0 && (audioSize < 0 || videoPts <= audioPts)) {
-                    check(videoPts >= 0L) { "encoded video sample has no timestamp" }
+                    check(videoPts >= 0L && videoPts > lastVideoPts) {
+                        "encoded video samples have missing, duplicate or non-monotonic timestamps"
+                    }
+                    lastVideoPts = videoPts
                     val flags = if (video.sampleFlags and MediaExtractor.SAMPLE_FLAG_SYNC != 0)
                         MediaCodec.BUFFER_FLAG_KEY_FRAME else 0
                     info.set(0, videoSize, videoPts, flags)
@@ -274,7 +279,10 @@ private object StrictVideoAudioMuxer {
                     // Preserve the complete compressed audio track, including a
                     // legitimate start offset or a short tail beyond the final
                     // video sample. Never silently trim source audio.
-                    check(audioPts >= 0L) { "source audio sample precedes the common timeline origin" }
+                    check(audioPts >= 0L && audioPts > lastAudioPts) {
+                        "source audio samples have missing, duplicate or non-monotonic timestamps"
+                    }
+                    lastAudioPts = audioPts
                     info.set(0, audioSize, audioPts, 0)
                     audioBuffer.position(0)
                     audioBuffer.limit(audioSize)
@@ -315,6 +323,7 @@ private object StrictVideoAudioMuxer {
     private fun read(extractor: MediaExtractor, buffer: ByteBuffer): Int {
         buffer.clear()
         val size = extractor.readSampleData(buffer, 0)
+        check(size != 0) { "compressed media track contains an empty sample" }
         check(size <= buffer.capacity()) { "compressed media sample exceeds the safe mux buffer size" }
         return size
     }

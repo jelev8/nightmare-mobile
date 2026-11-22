@@ -2516,7 +2516,8 @@ class HarnessViewModel(app: Application) : AndroidViewModel(app) {
                             scale = scale,
                             outputFile = output,
                             isCancelled = { job?.isActive != true },
-                            onProgress = { frame, frameCount, tile, tileCount ->
+                            onProgress = { frame, frameCount, tile, tileCount, heartbeat ->
+                                heartbeat()
                                 val now = android.os.SystemClock.elapsedRealtime()
                                 if (now >= nextThermalCheck) {
                                     nextThermalCheck = now + 10_000L
@@ -2547,10 +2548,12 @@ class HarnessViewModel(app: Application) : AndroidViewModel(app) {
                                     }
                                 }
                                 while (thermalPaused) {
+                                    heartbeat()
                                     if (job?.isActive != true) {
                                         throw kotlinx.coroutines.CancellationException("video upscale cancelled while waiting for the battery to cool")
                                     }
                                     android.os.SystemClock.sleep(1_000L)
+                                    heartbeat()
                                     val c = BatteryHeat.celsius(app)
                                     if (c == null) {
                                         thermalPaused = false

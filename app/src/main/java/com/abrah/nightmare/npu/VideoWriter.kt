@@ -199,18 +199,21 @@ object VideoWriter {
         // hardware codec and its surface, until codec creation failed app-wide. A start failure is
         // [EncoderStalled], so [encode] retries it on the software encoder as it does a stall.
         var surface: android.view.Surface? = null
+        var createdMuxer: MediaMuxer? = null
         val muxer = try {
             codec.configure(fmt, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
             surface = codec.createInputSurface()
             codec.start()
             log("      encoder $encoderName")
-            MediaMuxer(tmp.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4).also {
-                if (orientationDegrees != 0) it.setOrientationHint(orientationDegrees)
-            }
+            createdMuxer = MediaMuxer(tmp.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+            if (orientationDegrees != 0) createdMuxer.setOrientationHint(orientationDegrees)
+            createdMuxer
         } catch (e: Exception) {
+            runCatching { createdMuxer?.release() }
             runCatching { codec.stop() }
             runCatching { codec.release() }
             runCatching { surface?.release() }
+            tmp.delete()
             if (e is java.io.IOException) throw e
             throw EncoderStalled("the video encoder ($encoderName) could not start at ${w}x$h: ${e.message}", encoderName)
         }

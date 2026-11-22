@@ -1838,8 +1838,12 @@ class HarnessOps(private val ctx: Context, private val sink: Sink) {
                                 arrayOf(reusable),
                             )
                             check(reusable.size == 3 * 768 * 768) { "wrong reusable output element count" }
-                            for (v in reusable) {
-                                check(v.isFinite()) { "reusable output contains NaN or infinity" }
+                            for (i in reusable.indices) {
+                                val value = reusable[i]
+                                check(value.isFinite()) { "reusable output contains NaN or infinity" }
+                                check(kotlin.math.abs(value - allocated[i]) <= 1e-4f) {
+                                    "reusable output differs from the standard JNI output at element $i"
+                                }
                             }
                             say(
                                 "$id: PASS — loaded and executed both JNI paths; " +

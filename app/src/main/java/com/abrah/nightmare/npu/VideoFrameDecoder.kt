@@ -26,6 +26,7 @@ data class VideoUpscaleSource(
     val file: File,
     val videoTrack: Int,
     val audioTrack: Int?,
+    val audioBytes: Long,
     val videoFormat: MediaFormat,
     val codedWidth: Int,
     val codedHeight: Int,
@@ -178,11 +179,11 @@ object VideoUpscaleInspector {
                 "the source video has duplicate presentation timestamps"
             }
 
-            val audioStart = audioTrack?.let { scanAudioTrack(file, it, isCancelled) }
-            if (audioTrack != null && audioStart == null) {
+            val audioScan = audioTrack?.let { scanAudioTrack(file, it, isCancelled) }
+            if (audioTrack != null && audioScan == null) {
                 throw IllegalArgumentException("the source has an audio track but no readable audio samples")
             }
-            val origin = minOf(pts.first(), audioStart ?: pts.first())
+            val origin = minOf(pts.first(), audioScan?.firstPtsUs ?: pts.first())
             val declaredDuration = format.longOrNull(MediaFormat.KEY_DURATION) ?: 0L
             val frameDelta = if (pts.size > 1) pts.last() - pts[pts.lastIndex - 1]
                 else 1_000_000L / (format.intOrNull(MediaFormat.KEY_FRAME_RATE)?.takeIf { it > 0 } ?: 30)
@@ -200,6 +201,7 @@ object VideoUpscaleInspector {
                 file = file,
                 videoTrack = videoTrack,
                 audioTrack = audioTrack,
+                audioBytes = audioScan?.totalBytes ?: 0L,
                 videoFormat = format,
                 codedWidth = codedWidth,
                 codedHeight = codedHeight,
@@ -218,18 +220,24 @@ object VideoUpscaleInspector {
         }
     }
 
-    private fun scanAudioTrack(file: File, track: Int, isCancelled: () -> Boolean): Long? {
+    private data class AudioScan(val firstPtsUs: Long, val totalBytes: Long)
+
+    private fun scanAudioTrack(file: File, track: Int, isCancelled: () -> Boolean): AudioScan? {
         val extractor = MediaExtractor()
         return try {
             extractor.setDataSource(file.absolutePath)
             extractor.selectTrack(track)
             var first: Long? = null
             var previous = -1L
+            var totalBytes = 0L
             while (extractor.sampleTrackIndex >= 0) {
                 if (isCancelled()) throw CancellationException("video upscale cancelled during audio inspection")
                 check(extractor.sampleFlags and MediaExtractor.SAMPLE_FLAG_ENCRYPTED == 0) {
                     "DRM-encrypted audio is not supported"
                 }
+                val sampleSize = extractor.sampleSize
+                check(sampleSize > 0L) { "source audio track contains an empty sample" }
+                totalBytes = Math.addExact(totalBytes, sampleSize)
                 val pts = extractor.sampleTime
                 check(pts >= 0L && pts > previous) {
                     "source audio samples have missing, duplicate or non-monotonic timestamps"
@@ -238,7 +246,7 @@ object VideoUpscaleInspector {
                 previous = pts
                 if (!extractor.advance()) break
             }
-            first
+            first?.let { AudioScan(it, totalBytes) }
         } finally {
             extractor.release()
         }

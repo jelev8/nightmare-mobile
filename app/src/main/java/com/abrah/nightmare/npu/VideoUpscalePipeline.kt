@@ -45,10 +45,20 @@ class VideoUpscalePipeline(
         videoOnly.delete()
         muxedPart.delete()
 
-        // Refuse oversized jobs before loading the QNN context or starting either codec.
+        // Refuse oversized or storage-starved jobs before loading the QNN context or starting codecs.
         QnnUpscaleMemoryBudget.preflight(
             context, source.width, source.height, scale, source.codedWidth, source.codedHeight,
         )
+        val outWidth = Math.multiplyExact(source.width, scale)
+        val outHeight = Math.multiplyExact(source.height, scale)
+        require(outWidth % 2 == 0 && outHeight % 2 == 0) {
+            "the upscaled video dimensions must be even for H.264 encoding"
+        }
+        val encodeBitRate = maxOf(
+            8_000_000L,
+            outWidth.toLong() * outHeight * source.fps * 15L / 100L,
+        ).coerceAtMost(150_000_000L).toInt()
+        requireStorageBudget(source, encodeBitRate)
         val upscaler = QnnVideoFrameUpscaler(context, runner, modelFile, source.codedWidth, source.codedHeight)
         var encoderHeartbeat: () -> Unit = {}
         val actualPts = LongArray(source.frameCount) { Long.MIN_VALUE }
@@ -59,16 +69,6 @@ class VideoUpscalePipeline(
         var completed = false
 
         try {
-            val outWidth = Math.multiplyExact(source.width, scale)
-            val outHeight = Math.multiplyExact(source.height, scale)
-            require(outWidth % 2 == 0 && outHeight % 2 == 0) {
-                "the upscaled video dimensions must be even for H.264 encoding"
-            }
-            val encodeBitRate = maxOf(
-                8_000_000L,
-                outWidth.toLong() * outHeight * source.fps * 15L / 100L,
-            ).coerceAtMost(150_000_000L).toInt()
-            requireStorageBudget(source, encodeBitRate)
             log("video input: ${source.width}x${source.height}, ${source.frameCount} frames, ${source.fps} fps nominal")
             log("video output: ${outWidth}x${outHeight}, H.264 target bitrate ${encodeBitRate / 1_000_000} Mbps")
             log(if (source.audioTrack == null) "source audio: none" else "source audio: present; strict preservation enabled")

@@ -251,51 +251,53 @@ private object StrictVideoAudioMuxer {
             writer.start()
             started = true
 
-            val videoBuffer = sampleBuffer(videoFormat)
-            val audioBuffer = sampleBuffer(audioFormat)
+            var videoBuffer = sampleBuffer(videoFormat)
+            var audioBuffer = sampleBuffer(audioFormat)
             val info = MediaCodec.BufferInfo()
-            var videoSize = read(video, videoBuffer)
-            var audioSize = read(audio, audioBuffer)
+            var videoSample = read(video, videoBuffer).also { if (it != null) videoBuffer = it.buffer }
+            var audioSample = read(audio, audioBuffer).also { if (it != null) audioBuffer = it.buffer }
             var audioSamples = 0L
             var videoSamples = 0L
             var lastVideoPts = -1L
             var lastAudioPts = -1L
 
-            while (videoSize >= 0 || audioSize >= 0) {
+            while (videoSample != null || audioSample != null) {
                 if (isCancelled()) throw CancellationException("video upscale cancelled")
-                val videoPts = if (videoSize >= 0) video.sampleTime else Long.MAX_VALUE
-                val audioSourcePts = if (audioSize >= 0) audio.sampleTime else Long.MAX_VALUE
-                val audioPts = if (audioSize >= 0) audioSourcePts - source.timelineOriginUs else Long.MAX_VALUE
+                val videoPts = if (videoSample != null) video.sampleTime else Long.MAX_VALUE
+                val audioSourcePts = if (audioSample != null) audio.sampleTime else Long.MAX_VALUE
+                val audioPts = if (audioSample != null) audioSourcePts - source.timelineOriginUs else Long.MAX_VALUE
 
-                if (videoSize >= 0 && (audioSize < 0 || videoPts <= audioPts)) {
+                if (videoSample != null && (audioSample == null || videoPts <= audioPts)) {
+                    val sample = videoSample
                     check(videoPts >= 0L && videoPts > lastVideoPts) {
                         "encoded video samples have missing, duplicate or non-monotonic timestamps"
                     }
                     lastVideoPts = videoPts
                     val flags = if (video.sampleFlags and MediaExtractor.SAMPLE_FLAG_SYNC != 0)
                         MediaCodec.BUFFER_FLAG_KEY_FRAME else 0
-                    info.set(0, videoSize, videoPts, flags)
-                    videoBuffer.position(0)
-                    videoBuffer.limit(videoSize)
-                    writer.writeSampleData(videoOutTrack, videoBuffer, info)
+                    info.set(0, sample.size, videoPts, flags)
+                    sample.buffer.position(0)
+                    sample.buffer.limit(sample.size)
+                    writer.writeSampleData(videoOutTrack, sample.buffer, info)
                     videoSamples++
                     video.advance()
-                    videoSize = read(video, videoBuffer)
+                    videoSample = read(video, videoBuffer).also { if (it != null) videoBuffer = it.buffer }
                 } else {
                     // Preserve the complete compressed audio track, including a
                     // legitimate start offset or a short tail beyond the final
                     // video sample. Never silently trim source audio.
+                    val sample = audioSample!!
                     check(audioPts >= 0L && audioPts > lastAudioPts) {
                         "source audio samples have missing, duplicate or non-monotonic timestamps"
                     }
                     lastAudioPts = audioPts
-                    info.set(0, audioSize, audioPts, 0)
-                    audioBuffer.position(0)
-                    audioBuffer.limit(audioSize)
-                    writer.writeSampleData(audioOutTrack, audioBuffer, info)
+                    info.set(0, sample.size, audioPts, 0)
+                    sample.buffer.position(0)
+                    sample.buffer.limit(sample.size)
+                    writer.writeSampleData(audioOutTrack, sample.buffer, info)
                     audioSamples++
                     audio.advance()
-                    audioSize = read(audio, audioBuffer)
+                    audioSample = read(audio, audioBuffer).also { if (it != null) audioBuffer = it.buffer }
                 }
             }
 
@@ -326,18 +328,22 @@ private object StrictVideoAudioMuxer {
         return ByteBuffer.allocateDirect(capacity)
     }
 
-    private fun read(extractor: MediaExtractor, buffer: ByteBuffer): Int {
-        buffer.clear()
+    private data class EncodedSample(val buffer: ByteBuffer, val size: Int)
+
+    private fun read(extractor: MediaExtractor, reusable: ByteBuffer): EncodedSample? {
         val expectedSize = extractor.sampleSize
-        if (expectedSize < 0L) return -1
+        if (expectedSize < 0L) return null
         check(expectedSize > 0L) { "compressed media track contains an empty sample" }
-        check(expectedSize <= buffer.capacity().toLong()) {
-            "compressed media sample ($expectedSize bytes) exceeds the safe mux buffer size (${buffer.capacity()} bytes)"
+        check(expectedSize <= MAX_SAMPLE_BUFFER.toLong()) {
+            "compressed media sample ($expectedSize bytes) exceeds the $MAX_SAMPLE_BUFFER-byte safe mux limit"
         }
+        val buffer = if (expectedSize > reusable.capacity().toLong())
+            ByteBuffer.allocateDirect(expectedSize.toInt()) else reusable
+        buffer.clear()
         val size = extractor.readSampleData(buffer, 0)
         check(size > 0 && size.toLong() == expectedSize) {
             "could not read the complete compressed media sample"
         }
-        return size
+        return EncodedSample(buffer, size)
     }
 }

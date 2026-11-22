@@ -97,7 +97,7 @@ data class Result(
     val derivedFrom: String? = null,
     /** ⭐ Installed QNN upscaler id used to create this result. */
     val upscalerId: String? = null,
-    /** ⭐ Native model scale (4 for the current built-in models). */
+    /** ⭐ Requested output scale (2x/3x/4x); the installed model itself runs at native 4x. */
     val upscaleFactor: Int? = null,
 ) {
     val label: String get() = prompt?.take(60)?.ifBlank { null } ?: "no prompt"

@@ -175,8 +175,10 @@ object VideoUpscaleInspector {
             // presentation timestamps before using them as the frame-count/
             // duration reference.
             pts.sort()
-            require(pts.zipWithNext().all { (a, b) -> b > a }) {
-                "the source video has duplicate presentation timestamps"
+            for (index in 1 until pts.size) {
+                require(pts[index] > pts[index - 1]) {
+                    "the source video has duplicate presentation timestamps"
+                }
             }
 
             val audioScan = audioTrack?.let { scanAudioTrack(file, it, isCancelled) }

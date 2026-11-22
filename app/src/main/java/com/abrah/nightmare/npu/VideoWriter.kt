@@ -172,7 +172,7 @@ object VideoWriter {
         colorStandard: Int?,
         colorTransfer: Int?,
         colorRange: Int?,
-        onHeartbeatReady: (((() -> Unit)) -> Unit)?,
+        onHeartbeatReady: ((() -> Unit) -> Unit)?,
         frameAt: (Int) -> Bitmap,
     ): File {
         // Encode to a temp file first. MediaMuxer needs a seekable FileDescriptor, and a

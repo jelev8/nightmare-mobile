@@ -26,7 +26,8 @@ class ForkVideoImportActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (intent.action != Intent.ACTION_SEND ||
-            intent.type?.startsWith("video/") != true
+            intent.type?.startsWith("video/") != true ||
+            intent.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION == 0
         ) {
             finishWithMessage("Share one video to import it into Nightmare Fork Test.")
             return
@@ -64,6 +65,16 @@ class ForkVideoImportActivity : Activity() {
         }.orEmpty()
         if (displayName.isNotBlank() && !displayName.endsWith(".mp4", ignoreCase = true)) {
             throw IllegalArgumentException("The shared file is not named as an MP4.")
+        }
+
+        if (checkUriPermission(
+                uri,
+                android.os.Process.myPid(),
+                android.os.Process.myUid(),
+                Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            ) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            throw SecurityException("Android did not grant this app read access to the shared video.")
         }
 
         val staging = File(cacheDir, "fork-video-import-${UUID.randomUUID()}.mp4")
@@ -109,6 +120,10 @@ class ForkVideoImportActivity : Activity() {
             }
 
             try {
+                val required = staging.length() + 128L * 1024L * 1024L
+                if (cacheDir.usableSpace < required) {
+                    throw IllegalStateException("Not enough free space to safely copy the video into private Results.")
+                }
                 val store = ResultsStore(File(filesDir, "results"))
                 val result = store.keep(
                     bitmap = poster,

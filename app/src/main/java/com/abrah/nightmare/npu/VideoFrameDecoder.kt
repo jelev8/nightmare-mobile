@@ -6,6 +6,7 @@ import android.media.Image
 import android.media.ImageReader
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
+import android.media.MediaCodecList
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.graphics.PixelFormat
@@ -88,6 +89,10 @@ object VideoUpscaleInspector {
                 )
             }
             val format = extractor.getTrackFormat(videoTrack)
+            val decoderName = MediaCodecList(MediaCodecList.REGULAR_CODECS).findDecoderForFormat(format)
+            require(!decoderName.isNullOrBlank()) {
+                "no compatible device decoder is available for ${format.getString(MediaFormat.KEY_MIME)}"
+            }
             val codedWidth = format.getInteger(MediaFormat.KEY_WIDTH)
             val codedHeight = format.getInteger(MediaFormat.KEY_HEIGHT)
             require(codedWidth in 1..16_384 && codedHeight in 1..16_384) {

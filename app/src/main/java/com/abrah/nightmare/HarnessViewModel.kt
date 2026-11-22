@@ -2453,6 +2453,157 @@ class HarnessViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
+     * Upscale a saved MP4 with an already-installed image QNN context.
+     *
+     * This is deliberately separate from [upscaleResult]: that method builds
+     * an image workflow and uses the backend; this path decodes a private Results
+     * clip, runs the installed QNN context in-process, then stores a new private
+     * Results item. It never publishes to MediaStore or changes the source.
+     */
+    fun upscaleVideoResult(id: String, upscalerId: String, scale: Int = UpscaleNode.NATIVE_SCALE) {
+        val app = getApplication<Application>()
+        val spec = UpscalerCatalog.byId(upscalerId)
+        if (spec == null) {
+            toast(text(R.string.upscale_no_upscaler, upscalerId))
+            return
+        }
+        val modelPath = UpscalerCatalog.pathFor(app, upscalerId)
+        if (modelPath == null || !java.io.File(modelPath).isFile) {
+            toast("The selected upscaler is not installed. Install it first in Models.")
+            return
+        }
+        val sourceVideo = results.clipFile(id)
+        if (sourceVideo == null || !sourceVideo.isFile || sourceVideo.length() == 0L) {
+            toast("The source video is missing from Results.")
+            return
+        }
+        val output = java.io.File(
+            app.cacheDir,
+            "video-upscale-${java.util.UUID.randomUUID()}.mp4",
+        )
+
+        val refused = run("video upscale") {
+            upscalingResult = spec.label
+            toast("Upscaling video with ${spec.label}")
+            val job = kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]
+            var thermalPaused = false
+            var thermalWarned = false
+            var peakBattery = BatteryHeat.celsius(app) ?: 0.0
+            var nextThermalCheck = 0L
+            try {
+                withContext(Dispatchers.IO) {
+                    val source = com.abrah.nightmare.npu.VideoUpscaleInspector.inspect(sourceVideo)
+                    val sourceFlow = results.flow(id)?.workflow
+                        ?: throw IllegalStateException("the source result's original workflow is missing")
+                    val runner = com.abrah.nightmare.npu.QnnRunner(app)
+                    try {
+                        val pipeline = com.abrah.nightmare.npu.VideoUpscalePipeline(
+                            app, runner, java.io.File(modelPath),
+                        )
+                        val result = pipeline.run(
+                            source = source,
+                            scale = scale,
+                            outputFile = output,
+                            isCancelled = { job?.isActive != true },
+                            onProgress = { frame, frameCount, tile, tileCount ->
+                                val now = android.os.SystemClock.elapsedRealtime()
+                                if (now >= nextThermalCheck) {
+                                    nextThermalCheck = now + 10_000L
+                                    val c = BatteryHeat.celsius(app)
+                                    if (c != null) {
+                                        peakBattery = maxOf(peakBattery, c)
+                                        if (c >= BatteryHeat.WARN_AT && !thermalWarned) {
+                                            thermalWarned = true
+                                            say("battery is ${BatteryHeat.format(c)} °C; long video upscaling heats the phone")
+                                        }
+                                        val pauseAt = Prefs.heatPauseAt.toDouble()
+                                        if (Prefs.heatPause) {
+                                            val shouldPause = BatteryHeat.nextPaused(thermalPaused, c, pauseAt)
+                                            if (shouldPause && !thermalPaused) {
+                                                thermalPaused = true
+                                                say("video upscale paused at ${BatteryHeat.format(c)} °C; waiting for ${BatteryHeat.format(BatteryHeat.resumeAt(pauseAt))} °C")
+                                            } else if (!shouldPause && thermalPaused) {
+                                                thermalPaused = false
+                                                say("battery cooled to ${BatteryHeat.format(c)} °C; video upscale resumed")
+                                            }
+                                        } else if (thermalPaused) {
+                                            thermalPaused = false
+                                            say("thermal pause disabled; video upscale resumed")
+                                        }
+                                    } else if (thermalPaused) {
+                                        thermalPaused = false
+                                        say("battery temperature unavailable; video upscale resumed")
+                                    }
+                                }
+                                while (thermalPaused) {
+                                    if (job?.isActive != true) {
+                                        throw kotlinx.coroutines.CancellationException("video upscale cancelled while waiting for the battery to cool")
+                                    }
+                                    android.os.SystemClock.sleep(1_000L)
+                                    val c = BatteryHeat.celsius(app)
+                                    if (c == null) {
+                                        thermalPaused = false
+                                        break
+                                    }
+                                    peakBattery = maxOf(peakBattery, c)
+                                    if (!Prefs.heatPause ||
+                                        !BatteryHeat.nextPaused(true, c, Prefs.heatPauseAt.toDouble())
+                                    ) {
+                                        thermalPaused = false
+                                        say("battery cooled to ${BatteryHeat.format(c)} °C; video upscale resumed")
+                                    }
+                                }
+                                if (tile == tileCount && frame % 12 == 0) {
+                                    say("video upscale: frame $frame/$frameCount")
+                                }
+                            },
+                            log = { line -> say(line) },
+                        )
+                        try {
+                            results.keepUpscaledVideo(
+                                sourceId = id,
+                                video = result.file,
+                                poster = result.poster,
+                                workflow = sourceFlow,
+                                types = nodeTypes,
+                                upscalerId = upscalerId,
+                                scale = scale,
+                                resultWidth = result.width,
+                                resultHeight = result.height,
+                            )
+                        } finally {
+                            result.poster.recycle()
+                            result.file.delete()
+                        }
+                    } finally {
+                        runCatching { runner.releaseAll() }
+                    }
+                }
+                withContext(Dispatchers.Main) {
+                    refreshResults()
+                    toast("Upscaled video saved as a new Results item. The original is unchanged.")
+                    if (peakBattery >= Prefs.heatPauseAt.toDouble()) {
+                        say("battery reached ${BatteryHeat.format(peakBattery)} °C during video upscaling; let the phone cool before another long job")
+                    }
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                toast("Video upscaling cancelled. The original video was kept.")
+                throw e
+            } catch (t: Throwable) {
+                val why = t.message ?: t.javaClass.simpleName
+                say("video upscale failed: $why", bad = true)
+                toast("Video upscale failed: $why")
+            } finally {
+                withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) {
+                    output.delete()
+                }
+                upscalingResult = null
+            }
+        }
+        refused?.let { toast(text(R.string.upscale_not_done, it)) }
+    }
+
+    /**
      * ⭐ **Edit face** on a kept picture (Results, both rows): the "Edit a face" flow on its file, kept as a new result
      * ([upscaleResult]'s shape). ⚠ Every way out TOASTS: Results does not show the run log.
      */

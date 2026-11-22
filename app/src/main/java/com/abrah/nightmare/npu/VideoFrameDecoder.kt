@@ -68,8 +68,7 @@ object VideoUpscaleInspector {
 
             val transfer = format.intOrNull(MediaFormat.KEY_COLOR_TRANSFER)
             if (transfer != null && transfer != 0 &&
-                transfer != MediaFormat.COLOR_TRANSFER_SDR_VIDEO &&
-                transfer != MediaFormat.COLOR_TRANSFER_SRGB
+                transfer != MediaFormat.COLOR_TRANSFER_SDR_VIDEO
             ) {
                 throw IllegalArgumentException("HDR or non-SDR video is not supported yet")
             }

@@ -193,7 +193,7 @@ class QnnVideoFrameUpscaler(
                     }
                     val globalX = tileX * NATIVE_SCALE
                     for (ty in 0 until OUTPUT_TILE_SIZE) {
-                        val wy = QnnUpscaleTiling.fade(ty)
+                        val wy = tileFade[ty]
                         val stripeRow = ty * outW + globalX
                         val tileRow = ty * OUTPUT_TILE_SIZE
                         for (tx in 0 until OUTPUT_TILE_SIZE) {

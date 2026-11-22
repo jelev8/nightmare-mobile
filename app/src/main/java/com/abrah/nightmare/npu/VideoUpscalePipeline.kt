@@ -33,7 +33,8 @@ class VideoUpscalePipeline(
         scale: Int,
         outputFile: File,
         isCancelled: () -> Boolean = { false },
-        onProgress: (frame: Int, frameCount: Int, tile: Int, tileCount: Int) -> Unit = { _, _, _, _ -> },
+        onProgress: (frame: Int, frameCount: Int, tile: Int, tileCount: Int, heartbeat: () -> Unit) -> Unit =
+            { _, _, _, _, _ -> },
         log: (String) -> Unit = {},
     ): Result {
         require(scale in 2..4) { "video upscale scale must be 2x, 3x or 4x" }
@@ -47,6 +48,7 @@ class VideoUpscalePipeline(
         // Refuse oversized jobs before loading the QNN context or starting either codec.
         QnnUpscaleMemoryBudget.preflight(context, source.width, source.height, scale)
         val upscaler = QnnVideoFrameUpscaler(context, runner, modelFile)
+        var encoderHeartbeat: () -> Unit = {}
         val actualPts = LongArray(source.frameCount) { Long.MIN_VALUE }
         var decoder: VideoFrameDecoder? = null
         var nextFrame = 0
@@ -80,7 +82,9 @@ class VideoUpscalePipeline(
                 colorStandard = source.colorStandard,
                 colorTransfer = source.colorTransfer,
                 colorRange = source.colorRange,
+                onHeartbeatReady = { heartbeat -> encoderHeartbeat = heartbeat },
             ) { index ->
+                encoderHeartbeat()
                 if (isCancelled()) throw CancellationException("video upscale cancelled")
                 if (index == 0) {
                     decoder?.close()
@@ -97,7 +101,7 @@ class VideoUpscalePipeline(
                     lastOutput = null
                 }
                 check(index == nextFrame) { "video encoder requested frame $index after $nextFrame" }
-                val decoded = decoder?.nextFrame(isCancelled)
+                val decoded = decoder?.nextFrame(isCancelled, encoderHeartbeat)
                     ?: throw IllegalStateException("video decoder ended at frame $index of ${source.frameCount}")
                 try {
                     val expectedPts = source.framePtsUs[index]
@@ -112,7 +116,9 @@ class VideoUpscalePipeline(
                         scale = scale,
                         isCancelled = isCancelled,
                     ) { tile, total ->
-                        onProgress(index + 1, source.frameCount, tile, total)
+                        encoderHeartbeat()
+                        onProgress(index + 1, source.frameCount, tile, total, encoderHeartbeat)
+                        encoderHeartbeat()
                     }
                     lastOutput = upscaled
                     if (index == 0) poster = makePoster(upscaled, source.rotationDegrees)

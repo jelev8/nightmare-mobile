@@ -2584,7 +2584,6 @@ class HarnessViewModel(app: Application) : AndroidViewModel(app) {
                                 video = result.file,
                                 poster = result.poster,
                                 workflow = sourceFlow?.workflow,
-                                types = sourceFlow?.types ?: emptyMap(),
                                 upscalerId = upscalerId,
                                 scale = scale,
                                 resultWidth = result.width,

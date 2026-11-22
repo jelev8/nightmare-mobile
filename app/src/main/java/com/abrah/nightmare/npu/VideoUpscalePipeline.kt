@@ -86,6 +86,11 @@ class VideoUpscalePipeline(
                     lastOutput = null
                     poster?.takeIf { !it.isRecycled }?.recycle()
                     poster = null
+                } else {
+                    // VideoWriter has drawn and drained the previous frame before
+                    // requesting the next one, so its bitmap can now be released.
+                    lastOutput?.takeIf { !it.isRecycled }?.recycle()
+                    lastOutput = null
                 }
                 check(index == nextFrame) { "video encoder requested frame $index after $nextFrame" }
                 val decoded = decoder?.nextFrame(isCancelled)
@@ -292,8 +297,8 @@ private object StrictVideoAudioMuxer {
         } finally {
             if (started) runCatching { muxer?.stop() }
             runCatching { muxer?.release() }
-            video.release()
-            audio.release()
+            runCatching { video.release() }
+            runCatching { audio.release() }
         }
     }
 

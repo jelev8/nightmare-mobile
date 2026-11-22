@@ -90,10 +90,12 @@ object VideoUpscaleInspector {
                 )
             }
             val format = extractor.getTrackFormat(videoTrack)
-            val decoderName = MediaCodecList(MediaCodecList.REGULAR_CODECS).findDecoderForFormat(format)
-            require(!decoderName.isNullOrBlank()) {
-                "no compatible device decoder is available for ${format.getString(MediaFormat.KEY_MIME)}"
-            }
+            val decoderName = MediaCodecList(MediaCodecList.REGULAR_CODECS)
+                .findDecoderForFormat(format)
+                ?.takeIf { it.isNotBlank() }
+                ?: throw IllegalArgumentException(
+                    "no compatible device decoder is available for ${format.getString(MediaFormat.KEY_MIME)}"
+                )
             val codedWidth = format.getInteger(MediaFormat.KEY_WIDTH)
             val codedHeight = format.getInteger(MediaFormat.KEY_HEIGHT)
             require(codedWidth in 1..16_384 && codedHeight in 1..16_384) {

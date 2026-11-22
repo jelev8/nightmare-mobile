@@ -199,12 +199,25 @@ class MainActivity : ComponentActivity() {
         Thread { PromptTokens.ensureLoaded(appCtx) }.start()
         // ⚠ Only a fresh launch: a rotation or a relaunch from recents hands back the
         // SAME intent, which replayed the last adb op (`model_delete X`) every time.
-        if (savedInstanceState == null) { takeOp(intent); takeShare(intent) }
+        if (savedInstanceState == null) {
+            takeOp(intent)
+            takeShare(intent)
+            if (intent.getBooleanExtra("com.abrah.nightmare.REFRESH_RESULTS", false)) {
+                refreshResultsRequested.value = true
+                intent.removeExtra("com.abrah.nightmare.REFRESH_RESULTS")
+            }
+        }
         setContent {
             // ⚠⚠ Read from the view model, not from `Prefs` directly: the object
             // is a plain singleton with no Compose state, so a write to it would
             // change the value and recompose nothing.
             val vm: HarnessViewModel = viewModel()
+            androidx.compose.runtime.LaunchedEffect(refreshResultsRequested.value) {
+                if (refreshResultsRequested.value) {
+                    vm.refreshResults()
+                    refreshResultsRequested.value = false
+                }
+            }
             // ⭐ Ask the chip once, at first launch (the user's call, 2026-09-17).
             androidx.compose.runtime.LaunchedEffect(Unit) { vm.probeVideoSupport() }
             // ⭐ GitHub #107: pictures shared in from another app go to the Send to dialog.
@@ -261,6 +274,10 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        if (intent.getBooleanExtra("com.abrah.nightmare.REFRESH_RESULTS", false)) {
+            intent.removeExtra("com.abrah.nightmare.REFRESH_RESULTS")
+            refreshResultsRequested.value = true
+        }
         takeOp(intent)
         takeShare(intent)
     }
@@ -286,6 +303,7 @@ class MainActivity : ComponentActivity() {
 
     /** ⭐ What [takeShare] took, handed to the view model by the composition (it owns the VM). */
     private val shared = androidx.compose.runtime.mutableStateOf<List<android.net.Uri>>(emptyList())
+    private val refreshResultsRequested = androidx.compose.runtime.mutableStateOf(false)
 
     private fun takeOp(intent: Intent?) {
         intent ?: return

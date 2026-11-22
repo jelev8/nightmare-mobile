@@ -46,7 +46,15 @@ class ForkVideoImportActivity : Activity() {
                 )
             runOnUiThread {
                 Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+                val returnedToResults = message.startsWith("Video imported")
                 finish()
+                if (returnedToResults) {
+                    startActivity(
+                        Intent(this, MainActivity::class.java)
+                            .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                            .putExtra("com.abrah.nightmare.REFRESH_RESULTS", true)
+                    )
+                }
             }
         }.start()
     }

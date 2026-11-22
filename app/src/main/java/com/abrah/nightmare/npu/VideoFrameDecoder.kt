@@ -14,7 +14,6 @@ import kotlinx.coroutines.CancellationException
 import java.io.Closeable
 import java.io.File
 import java.nio.ByteBuffer
-import kotlinx.coroutines.CancellationException
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -105,17 +104,17 @@ object VideoUpscaleInspector {
             val mime = format.getString(MediaFormat.KEY_MIME).orEmpty()
             val profile = format.intOrNull(MediaFormat.KEY_PROFILE)
             val tenBitProfile = when (mime) {
-                MediaFormat.MIMETYPE_VIDEO_AVC -> profile in setOf(
+                MediaFormat.MIMETYPE_VIDEO_AVC -> profile != null && profile in setOf(
                     MediaCodecInfo.CodecProfileLevel.AVCProfileHigh10,
                     MediaCodecInfo.CodecProfileLevel.AVCProfileHigh422,
                     MediaCodecInfo.CodecProfileLevel.AVCProfileHigh444,
                 )
-                MediaFormat.MIMETYPE_VIDEO_HEVC -> profile in setOf(
+                MediaFormat.MIMETYPE_VIDEO_HEVC -> profile != null && profile in setOf(
                     MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10,
                     MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10HDR10,
                     MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10HDR10Plus,
                 )
-                MediaFormat.MIMETYPE_VIDEO_VP9 -> profile in setOf(
+                MediaFormat.MIMETYPE_VIDEO_VP9 -> profile != null && profile in setOf(
                     MediaCodecInfo.CodecProfileLevel.VP9Profile2,
                     MediaCodecInfo.CodecProfileLevel.VP9Profile3,
                     MediaCodecInfo.CodecProfileLevel.VP9Profile2HDR,
@@ -123,7 +122,7 @@ object VideoUpscaleInspector {
                     MediaCodecInfo.CodecProfileLevel.VP9Profile2HDR10Plus,
                     MediaCodecInfo.CodecProfileLevel.VP9Profile3HDR10Plus,
                 )
-                MediaFormat.MIMETYPE_VIDEO_AV1 -> profile in setOf(
+                MediaFormat.MIMETYPE_VIDEO_AV1 -> profile != null && profile in setOf(
                     MediaCodecInfo.CodecProfileLevel.AV1ProfileMain10,
                     MediaCodecInfo.CodecProfileLevel.AV1ProfileMain10HDR10,
                     MediaCodecInfo.CodecProfileLevel.AV1ProfileMain10HDR10Plus,

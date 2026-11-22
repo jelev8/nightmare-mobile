@@ -1823,8 +1823,12 @@ class HarnessOps(private val ctx: Context, private val sink: Sink) {
                 }
             }
         } finally {
-            runner.releaseAll()
-            RunLock.release("upscaler-qnn-probe")
+            try {
+                runner.releaseAll()
+            } finally {
+                // Resource cleanup must never strand the process-wide render lock.
+                RunLock.release("upscaler-qnn-probe")
+            }
         }
     }
 

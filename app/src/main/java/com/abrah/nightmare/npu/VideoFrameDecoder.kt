@@ -207,6 +207,7 @@ class VideoFrameDecoder(
     private val decoder: MediaCodec
     private var inputEnded = false
     private var outputEnded = false
+    private var framesReturned = 0
     private var closed = false
 
     init {
@@ -289,8 +290,14 @@ class VideoFrameDecoder(
                     val flags = info.flags
                     val eos = flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0
                     val codecConfig = flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0
-                    val hasFrame = !codecConfig && info.presentationTimeUs >= 0L &&
-                        (info.size > 0 || !eos)
+                    val hasPresentationTime = !codecConfig && info.presentationTimeUs >= 0L
+                    if (hasPresentationTime && framesReturned >= source.frameCount &&
+                        (!eos || info.size > 0)
+                    ) {
+                        decoder.releaseOutputBuffer(outputIndex, false)
+                        throw IllegalStateException("decoder produced more frames than the MP4 sample scan")
+                    }
+                    val hasFrame = hasPresentationTime && framesReturned < source.frameCount
                     if (hasFrame) {
                         val pts = info.presentationTimeUs
                         decoder.releaseOutputBuffer(outputIndex, true)
@@ -301,6 +308,7 @@ class VideoFrameDecoder(
                         } finally {
                             image.close()
                         }
+                        framesReturned++
                         return DecodedVideoFrame(bitmap, pts)
                     } else {
                         decoder.releaseOutputBuffer(outputIndex, false)

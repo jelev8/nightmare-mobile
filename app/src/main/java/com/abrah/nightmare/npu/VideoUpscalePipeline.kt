@@ -139,6 +139,12 @@ class VideoUpscalePipeline(
                 extra.bitmap.recycle()
                 throw IllegalStateException("the decoder produced more frames than the source sample scan")
             }
+            decoder?.close()
+            decoder = null
+            lastOutput?.takeIf { !it.isRecycled }?.recycle()
+            lastOutput = null
+            // The model context is no longer needed; free NPU memory before audio remux.
+            runner.release(modelFile)
             check(videoOnly.isFile && videoOnly.length() > 0L) { "the video encoder produced an empty file" }
 
             if (source.audioTrack == null) {
@@ -268,7 +274,7 @@ private object StrictVideoAudioMuxer {
                 val audioPts = if (audioSample != null) audioSourcePts - source.timelineOriginUs else Long.MAX_VALUE
 
                 if (videoSample != null && (audioSample == null || videoPts <= audioPts)) {
-                    val sample = videoSample
+                    val sample = checkNotNull(videoSample)
                     check(videoPts >= 0L && videoPts > lastVideoPts) {
                         "encoded video samples have missing, duplicate or non-monotonic timestamps"
                     }

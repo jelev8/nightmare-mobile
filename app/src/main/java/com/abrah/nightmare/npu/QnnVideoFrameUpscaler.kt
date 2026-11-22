@@ -296,7 +296,7 @@ class QnnVideoFrameUpscaler(
         outputHeight: Int,
         targetWidth: Int,
         targetHeight: Int,
-    ) = QnnUpscaleMemoryBudget.require(
+    ) = QnnUpscaleMemoryBudget.checkBudget(
         context, sourceWidth, sourceHeight, inputWidth, inputHeight,
         outputWidth, outputHeight, targetWidth, targetHeight,
     )
@@ -341,7 +341,7 @@ internal object QnnUpscaleMemoryBudget {
         require(targetWidth % 2L == 0L && targetHeight % 2L == 0L) {
             "the requested video output dimensions must be even"
         }
-        require(
+        checkBudget(
             context,
             width, height, inputWidth, inputHeight,
             outputWidth.toInt(), outputHeight.toInt(),
@@ -349,7 +349,7 @@ internal object QnnUpscaleMemoryBudget {
         )
     }
 
-    fun require(
+    fun checkBudget(
         context: Context,
         sourceWidth: Int,
         sourceHeight: Int,

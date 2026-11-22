@@ -1,4 +1,5 @@
 name: fork-test-apk
+# One-time initial test build trigger; subsequent runs require the same commit-message opt-in.
 
 on:
   push:

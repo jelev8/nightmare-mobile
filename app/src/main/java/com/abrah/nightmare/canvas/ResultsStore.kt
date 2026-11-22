@@ -365,6 +365,12 @@ class ResultsStore(private val dir: File) {
 
         synchronized(KEEP_LOCK) {
             dir.mkdirs()
+            // A process kill can bypass the normal rollback; remove only our
+            // own atomic-save temp files while holding the shared store lock.
+            dir.listFiles()?.filter {
+                it.name.startsWith("r") &&
+                    (it.name.endsWith(".png.tmp") || it.name.endsWith(".mp4.tmp") || it.name.endsWith(".json.tmp"))
+            }?.forEach { it.delete() }
             val source = all().firstOrNull { it.id == sourceId }
                 ?: throw IllegalArgumentException("source result is no longer in Results")
             val sourceClip = clipFile(sourceId)

@@ -5,6 +5,7 @@ import android.graphics.Rect
 import android.media.Image
 import android.media.ImageReader
 import android.media.MediaCodec
+import android.media.MediaCodecInfo
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.graphics.PixelFormat
@@ -87,7 +88,35 @@ object VideoUpscaleInspector {
             }
             val standard = format.intOrNull(MediaFormat.KEY_COLOR_STANDARD)
             val bitDepth = if (format.containsKey("bit-depth")) format.getInteger("bit-depth") else null
-            if (bitDepth != null && bitDepth > 8) {
+            val mime = format.getString(MediaFormat.KEY_MIME).orEmpty()
+            val profile = format.intOrNull(MediaFormat.KEY_PROFILE)
+            val tenBitProfile = when (mime) {
+                MediaFormat.MIMETYPE_VIDEO_AVC -> profile in setOf(
+                    MediaCodecInfo.CodecProfileLevel.AVCProfileHigh10,
+                    MediaCodecInfo.CodecProfileLevel.AVCProfileHigh422,
+                    MediaCodecInfo.CodecProfileLevel.AVCProfileHigh444,
+                )
+                MediaFormat.MIMETYPE_VIDEO_HEVC -> profile in setOf(
+                    MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10,
+                    MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10HDR10,
+                    MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10HDR10Plus,
+                )
+                MediaFormat.MIMETYPE_VIDEO_VP9 -> profile in setOf(
+                    MediaCodecInfo.CodecProfileLevel.VP9Profile2,
+                    MediaCodecInfo.CodecProfileLevel.VP9Profile3,
+                    MediaCodecInfo.CodecProfileLevel.VP9Profile2HDR,
+                    MediaCodecInfo.CodecProfileLevel.VP9Profile3HDR,
+                    MediaCodecInfo.CodecProfileLevel.VP9Profile2HDR10Plus,
+                    MediaCodecInfo.CodecProfileLevel.VP9Profile3HDR10Plus,
+                )
+                MediaFormat.MIMETYPE_VIDEO_AV1 -> profile in setOf(
+                    MediaCodecInfo.CodecProfileLevel.AV1ProfileMain10,
+                    MediaCodecInfo.CodecProfileLevel.AV1ProfileMain10HDR10,
+                    MediaCodecInfo.CodecProfileLevel.AV1ProfileMain10HDR10Plus,
+                )
+                else -> false
+            }
+            if ((bitDepth != null && bitDepth > 8) || tenBitProfile) {
                 throw IllegalArgumentException("only 8-bit SDR video is supported")
             }
             if (format.containsKey("hdr10-plus-info") || format.containsKey("hdr-st2094-50-info")) {

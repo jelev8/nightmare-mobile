@@ -695,7 +695,7 @@ fun ResultsScreen(
             },
             width = r.width.takeIf { r.videoPath == null },
             height = r.height.takeIf { r.videoPath == null },
-            onInstall = onInstallUpscaler,
+            onInstall = onInstallUpscaler.takeIf { r.videoPath == null },
             onDismiss = { upscalingPick = null },
         )
     }
@@ -1250,7 +1250,7 @@ fun ResultViewer(
                 },
                 width = r.width.takeIf { r.videoPath == null },
                 height = r.height.takeIf { r.videoPath == null },
-                onInstall = onInstallUpscaler,
+                onInstall = onInstallUpscaler.takeIf { r.videoPath == null },
                 onDismiss = { upscalingPick = null },
             )
         }
@@ -1613,7 +1613,7 @@ fun UpscalePicker(
     upscalers: List<UpscalerRow>,
     /** The upscaler's id and the scale, 2..4. */
     onPick: (String, Int) -> Unit,
-    onInstall: (com.abrah.nightmare.UpscalerSpec) -> Unit,
+    onInstall: ((com.abrah.nightmare.UpscalerSpec) -> Unit)?,
     onDismiss: () -> Unit,
     /** ⭐ The picture's size, to dim the scales that would pass the cap; null offers all. */
     width: Int? = null,
@@ -1672,7 +1672,7 @@ fun UpscalePicker(
                         when {
                             u.installed -> StudioButton(onClick = { onPick(u.spec.id, scale) }, enabled = fits(scale)) { Text(stringResource(R.string.use)) }
                             u.progress != null -> Text(stringResource(R.string.results_mb_progress, u.progress.done shr 20, u.progress.total shr 20), style = MeasureTextStyle)
-                            u.build != null -> StudioOutlinedButton(onClick = { onInstall(u.spec) }) {
+                            u.build != null && onInstall != null -> StudioOutlinedButton(onClick = { onInstall(u.spec) }) {
                                 Text(stringResource(R.string.device_mb, u.build.bytes shr 20))
                             }
                             else -> Text(stringResource(R.string.cannot_run_it), style = NoteTextStyle)

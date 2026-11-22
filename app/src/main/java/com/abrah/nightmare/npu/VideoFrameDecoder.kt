@@ -105,15 +105,20 @@ object VideoUpscaleInspector {
             while (extractor.sampleTrackIndex >= 0) {
                 val time = extractor.sampleTime
                 require(time >= 0L) { "the video contains a sample without a presentation timestamp" }
-                require(previous < 0L || time > previous) {
-                    "the source video has duplicate or non-monotonic presentation timestamps"
-                }
                 pts += time
-                previous = time
+                previous = max(previous, time)
                 require(pts.size <= MAX_FRAMES) { "the source video contains too many frames for one job" }
                 if (!extractor.advance()) break
             }
             require(pts.isNotEmpty()) { "the source video contains no decodable frames" }
+            // MP4 samples can be stored in decode order when B-frames are used.
+            // The decoder presents them in display order, so sort the source
+            // presentation timestamps before using them as the frame-count/
+            // duration reference.
+            pts.sort()
+            require(pts.zipWithNext().all { (a, b) -> b > a }) {
+                "the source video has duplicate presentation timestamps"
+            }
 
             val audioStart = audioTrack?.let { firstTrackSampleTime(file, it) }
             if (audioTrack != null && audioStart == null) {
@@ -194,17 +199,19 @@ class VideoFrameDecoder(
             extractor.selectTrack(source.videoTrack)
             val mime = source.videoFormat.getString(MediaFormat.KEY_MIME)
                 ?: throw IllegalArgumentException("source video MIME type is missing")
-            createdReader = ImageReader.newInstance(
+            val newReader = ImageReader.newInstance(
                 source.codedWidth,
                 source.codedHeight,
                 PixelFormat.RGBA_8888,
                 2,
             )
-            createdDecoder = MediaCodec.createDecoderByType(mime)
-            createdDecoder.configure(source.videoFormat, createdReader.surface, null, 0)
-            createdDecoder.start()
-            reader = createdReader
-            decoder = createdDecoder
+            createdReader = newReader
+            val newDecoder = MediaCodec.createDecoderByType(mime)
+            createdDecoder = newDecoder
+            newDecoder.configure(source.videoFormat, newReader.surface, null, 0)
+            newDecoder.start()
+            reader = newReader
+            decoder = newDecoder
         } catch (t: Throwable) {
             runCatching { createdDecoder?.stop() }
             runCatching { createdDecoder?.release() }
@@ -309,7 +316,7 @@ class VideoFrameDecoder(
         for (y in 0 until crop.height()) {
             val row = (crop.top + y) * rowStride
             for (x in 0 until crop.width()) {
-                val offset = row + (crop.left + x) * pixelStride
+                val offset = buffer.position() + row + (crop.left + x) * pixelStride
                 val r = buffer.get(offset).toInt() and 0xFF
                 val g = buffer.get(offset + 1).toInt() and 0xFF
                 val b = buffer.get(offset + 2).toInt() and 0xFF

@@ -295,8 +295,6 @@ class VideoFrameDecoder(
         try {
             extractor.setDataSource(source.file.absolutePath)
             extractor.selectTrack(source.videoTrack)
-            val mime = source.videoFormat.getString(MediaFormat.KEY_MIME)
-                ?: throw IllegalArgumentException("source video MIME type is missing")
             val newReader = ImageReader.newInstance(
                 source.codedWidth,
                 source.codedHeight,
@@ -304,7 +302,7 @@ class VideoFrameDecoder(
                 2,
             )
             createdReader = newReader
-            val newDecoder = MediaCodec.createDecoderByType(mime)
+            val newDecoder = MediaCodec.createByCodecName(source.decoderName)
             createdDecoder = newDecoder
             newDecoder.configure(source.videoFormat, newReader.surface, null, 0)
             newDecoder.start()

@@ -166,7 +166,7 @@ class VideoUpscalePipeline(
                     log = log,
                 )
             }
-            verifyOutput(outputFile, source.audioTrack != null)
+            verifyOutput(outputFile, source.audioTrack != null, outWidth, outHeight)
             val posterBitmap = poster ?: throw IllegalStateException("the first output frame was not captured")
             poster = null // transfer ownership to caller
             val displayWidth = if (source.rotationDegrees == 90 || source.rotationDegrees == 270) outHeight else outWidth
@@ -217,19 +217,23 @@ class VideoUpscalePipeline(
         return rotated
     }
 
-    private fun verifyOutput(file: File, expectAudio: Boolean) {
+    private fun verifyOutput(file: File, expectAudio: Boolean, width: Int, height: Int) {
         check(file.isFile && file.length() > 0L) { "the final MP4 is missing or empty" }
         val extractor = MediaExtractor()
         try {
             extractor.setDataSource(file.absolutePath)
-            val hasVideo = (0 until extractor.trackCount).any {
-                extractor.getTrackFormat(it).getString(MediaFormat.KEY_MIME)?.startsWith("video/") == true
-            }
-            val hasAudio = (0 until extractor.trackCount).any {
+            val videoFormats = (0 until extractor.trackCount).map { extractor.getTrackFormat(it) }
+                .filter { it.getString(MediaFormat.KEY_MIME)?.startsWith("video/") == true }
+            val audioCount = (0 until extractor.trackCount).count {
                 extractor.getTrackFormat(it).getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true
             }
-            check(hasVideo) { "the final MP4 has no readable video track" }
-            check(hasAudio == expectAudio) {
+            check(videoFormats.size == 1) { "the final MP4 must contain exactly one readable video track" }
+            val videoFormat = videoFormats.single()
+            check(
+                videoFormat.getInteger(MediaFormat.KEY_WIDTH) == width &&
+                    videoFormat.getInteger(MediaFormat.KEY_HEIGHT) == height
+            ) { "the final MP4 dimensions do not match the requested upscale output" }
+            check(audioCount == if (expectAudio) 1 else 0) {
                 if (expectAudio) "the source had audio, but the final MP4 has no audio track"
                 else "an unexpected audio track appeared in the final MP4"
             }

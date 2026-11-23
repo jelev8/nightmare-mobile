@@ -18,12 +18,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPOSITORY: ${{ github.repository }}
-          GH_STEP_SUMMARY: ${{ github.step_summary }}
         shell: bash
         run: |
           set -euo pipefail
           node <<'NODE'
-          const fs = require('node:fs');
+          import fs from 'node:fs';
 
           const [owner, repo] = process.env.GH_REPOSITORY.split('/');
           const headers = {
@@ -97,5 +96,5 @@ jobs:
 
           const report = lines.join('\n');
           console.log(report);
-          fs.appendFileSync(process.env.GH_STEP_SUMMARY, report + '\n');
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, report + '\n');
           NODE

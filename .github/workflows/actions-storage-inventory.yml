@@ -1,0 +1,101 @@
+name: Actions storage inventory
+
+on:
+  workflow_dispatch:
+
+# Read-only inventory. This workflow cannot delete artifacts or caches.
+permissions:
+  actions: read
+  contents: none
+
+jobs:
+  inventory:
+    if: github.ref == 'refs/heads/video-upscaling-integration'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Inventory artifacts and Actions caches
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPOSITORY: ${{ github.repository }}
+          GH_STEP_SUMMARY: ${{ github.step_summary }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+
+          const [owner, repo] = process.env.GH_REPOSITORY.split('/');
+          const headers = {
+            authorization: `Bearer ${process.env.GH_TOKEN}`,
+            accept: 'application/vnd.github+json',
+            'x-github-api-version': '2022-11-28'
+          };
+
+          async function getAll(path, key) {
+            const all = [];
+            for (let page = 1; page <= 100; page++) {
+              const url = `https://api.github.com/repos/${owner}/${repo}${path}?per_page=100&page=${page}`;
+              const response = await fetch(url, { headers });
+              if (!response.ok) {
+                const body = await response.text();
+                throw new Error(`GET ${path} failed (${response.status}): ${body.slice(0, 500)}`);
+              }
+              const data = await response.json();
+              const batch = data[key] || [];
+              all.push(...batch);
+              if (batch.length < 100) return all;
+            }
+            throw new Error(`Pagination safety limit reached for ${path}`);
+          }
+
+          const artifacts = await getAll('/actions/artifacts', 'artifacts');
+          let caches = [];
+          let cacheNote = '';
+          try {
+            caches = await getAll('/actions/caches', 'actions_caches');
+          } catch (error) {
+            cacheNote = `Cache inventory unavailable: ${error.message}`;
+          }
+
+          const mib = n => (Number(n || 0) / 1048576).toFixed(2);
+          const artifactBytes = artifacts.reduce((sum, item) => sum + Number(item.size_in_bytes || 0), 0);
+          const cacheBytes = caches.reduce((sum, item) => sum + Number(item.size_in_bytes || 0), 0);
+
+          const lines = [
+            '# GitHub Actions storage inventory',
+            '',
+            '**Read-only report. No artifacts or caches were deleted.**',
+            '',
+            `- Repository: ${owner}/${repo}`,
+            `- Artifacts: ${artifacts.length} totaling ${mib(artifactBytes)} MiB`,
+            `- Caches: ${caches.length} totaling ${mib(cacheBytes)} MiB`,
+            ''
+          ];
+
+          if (cacheNote) lines.push(`> ${cacheNote}`, '');
+
+          lines.push('## Workflow artifacts', '');
+          if (!artifacts.length) lines.push('No artifacts found.', '');
+          else {
+            lines.push('| Artifact | ID | Size (MiB) | Created | Expires | Workflow run |', '|---|---:|---:|---|---|---:|');
+            for (const a of artifacts.sort((x, y) => new Date(y.created_at) - new Date(x.created_at))) {
+              lines.push(`|${String(a.name).replaceAll('|', '\\|')}|${a.id}|${mib(a.size_in_bytes)}|${a.created_at}|${a.expires_at || '—'}|${a.workflow_run?.id || '—'}|`);
+            }
+            lines.push('');
+          }
+
+          lines.push('## Actions caches', '');
+          if (!caches.length) lines.push('No caches found or none could be listed.', '');
+          else {
+            lines.push('| Cache key | ID | Size (MiB) | Last accessed | Ref |', '|---|---:|---:|---|---|');
+            for (const c of caches.sort((x, y) => new Date(y.last_accessed_at) - new Date(x.last_accessed_at))) {
+              lines.push(`|${String(c.key).replaceAll('|', '\\|')}|${c.id}|${mib(c.size_in_bytes)}|${c.last_accessed_at || '—'}|${String(c.ref || '—').replaceAll('|', '\\|')}|`);
+            }
+            lines.push('');
+          }
+
+          const report = lines.join('\n');
+          console.log(report);
+          fs.appendFileSync(process.env.GH_STEP_SUMMARY, report + '\n');
+          NODE
